@@ -13,7 +13,7 @@
     "web": {
       "root": "apps/web",
       "framework": "vite",
-      "outputDirectory": "dist"
+      "outputDirectory": "apps/web/dist"
     }
   },
   "rewrites": [
