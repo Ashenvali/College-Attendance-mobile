@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "name": "BITS Kurnool",
+    "slug": "bits-kurnool-college",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "splash": { "backgroundColor": "#123c78" },
+    "ios": { "supportsTablet": true, "bundleIdentifier": "in.edu.bitskurnool.college" },
+    "android": { "package": "in.edu.bitskurnool.college", "adaptiveIcon": { "backgroundColor": "#123c78" } }
+  }
+}

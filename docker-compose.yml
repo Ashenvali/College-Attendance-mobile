@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: bits-kurnool-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: bits_kurnool
+      POSTGRES_USER: bits
+      POSTGRES_PASSWORD: bits
+    ports:
+      - "5433:5432"
+    volumes:
+      - bits-kurnool-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bits -d bits_kurnool"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+volumes:
+  bits-kurnool-pgdata:
