@@ -2,7 +2,11 @@
   "name": "bits-kurnool-college-management",
   "private": true,
   "version": "0.1.0",
-  "workspaces": ["apps/api", "apps/web", "apps/mobile"],
+  "workspaces": [
+    "apps/api",
+    "apps/web",
+    "apps/mobile"
+  ],
   "scripts": {
     "dev": "concurrently -k -n API,WEB -c blue,green \"npm:dev:api\" \"npm:dev:web\"",
     "dev:api": "tsx watch apps/api/src/server.ts",
@@ -20,5 +24,9 @@
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vite": "^6.4.3"
+  },
+  "dependencies": {
+    "@vercel/speed-insights": "^2.0.0",
+    "drizzle-orm": "^0.45.4"
   }
 }
