@@ -28,12 +28,15 @@ resourcesRouter.get('/:resource', async (req, res, next) => {
     let data: unknown;
     switch (resource) {
       case 'students': {
-        let rows = await db.select({ id: studentProfiles.id, userId: users.id, name: users.fullName, email: users.email, phone: users.phone, rollNumber: studentProfiles.rollNumber, year: studentProfiles.year, section: sections.name, sectionId: sections.id, departmentId: departments.id, department: departments.code, active: studentProfiles.active })
+        let rows = await db.select({ id: studentProfiles.id, userId: users.id, name: users.fullName, email: users.email, phone: users.phone, parentPhone: studentProfiles.parentPhone, parentSmsConsent: studentProfiles.parentSmsConsent, rollNumber: studentProfiles.rollNumber, year: studentProfiles.year, section: sections.name, sectionId: sections.id, departmentId: departments.id, department: departments.code, active: studentProfiles.active })
           .from(studentProfiles).innerJoin(users, eq(studentProfiles.userId, users.id)).innerJoin(sections, eq(studentProfiles.sectionId, sections.id)).innerJoin(departments, eq(studentProfiles.departmentId, departments.id)).orderBy(studentProfiles.rollNumber).limit(500);
         if (user.role === 'STUDENT') rows = rows.filter((r) => r.userId === user.id);
         if (user.role === 'HOD' && user.departmentId) rows = rows.filter((r) => r.departmentId === user.departmentId);
         if (user.role === 'FACULTY') { const { scopes } = await getFacultyScopes(user.id); const sectionIds = new Set([...scopes].map((key) => key.split(':')[1])); rows = rows.filter((r) => sectionIds.has(r.sectionId)); }
-        data = rows; break;
+        data = ['ADMIN', 'SUPER_ADMIN'].includes(user.role)
+          ? rows.map(({ parentPhone, parentSmsConsent, ...row }) => ({ ...row, hasParentContact: Boolean(parentPhone?.trim()), parentSmsConsent }))
+          : rows.map(({ parentPhone: _parentPhone, parentSmsConsent: _consent, ...row }) => row);
+        break;
       }
       case 'faculty': {
         let rows = await db.select({ id: facultyProfiles.id, userId: users.id, name: users.fullName, email: users.email, phone: users.phone, facultyCode: facultyProfiles.facultyCode, designation: facultyProfiles.designation, departmentId: departments.id, department: departments.code, active: facultyProfiles.active }).from(facultyProfiles).innerJoin(users, eq(facultyProfiles.userId, users.id)).innerJoin(departments, eq(facultyProfiles.departmentId, departments.id)).orderBy(users.fullName).limit(500);

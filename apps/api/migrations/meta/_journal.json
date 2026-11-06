@@ -8,6 +8,20 @@
       "when": 1791118846015,
       "tag": "0000_overjoyed_dreadnoughts",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1793950877835,
+      "tag": "0001_parent_sms_scope_consent",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794000000000,
+      "tag": "0002_security_sms_absent",
+      "breakpoints": true
     }
   ]
 }

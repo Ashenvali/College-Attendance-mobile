@@ -5,6 +5,7 @@ import { db, pool } from './client';
 import { academicYears, assignments, attendanceRecords, attendanceSessions, courses, departments, events, examinations, facultyProfiles, facultySubjects, fees, notices, sections, semesters, studentProfiles, subjects, timetables, users } from './schema';
 
 async function main() {
+  if (process.env.ALLOW_DEMO_SEED !== 'true') throw new Error('Refusing to seed demo data. Set ALLOW_DEMO_SEED=true (development databases only; never the production database).');
   const deptData = [
     ['CSE','Computer Science & Engineering'], ['ECE','Electronics & Communication Engineering'], ['CE','Civil Engineering'],
     ['ME','Mechanical Engineering'], ['EEE','Electrical & Electronics Engineering'], ['HS','Humanities & Science'],

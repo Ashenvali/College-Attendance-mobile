@@ -1,0 +1,28 @@
+import { useCallback,useState } from 'react';
+import { RefreshControl,ScrollView,StyleSheet,Text,View } from 'react-native';
+import { useFocusEffect } from 'expo-router';
+import { AppButton } from '../components/AppButton';
+import { ChoiceField } from '../components/ChoiceField';
+import { ConfirmDialog } from '../components/ConfirmDialog';
+import { SectionHeading,StatusPill,Surface } from '../components/Display';
+import { EmptyState,ErrorState,LoadingState } from '../components/Feedback';
+import { FormField } from '../components/FormField';
+import { useAuth } from '../context/AuthContext';
+import { request } from '../services/api';
+import type { ClassChoice,MobileNotice } from '../types/api';
+import { palette } from '../theme';
+
+export function NoticesScreen(){const {user}=useAuth();const [notices,setNotices]=useState<MobileNotice[]>([]);const [classes,setClasses]=useState<ClassChoice[]>([]);const [selectedSection,setSelectedSection]=useState('');const [title,setTitle]=useState('');const [body,setBody]=useState('');const [busy,setBusy]=useState(false);const [loading,setLoading]=useState(true);const [refreshing,setRefreshing]=useState(false);const [error,setError]=useState('');const [success,setSuccess]=useState('');const [confirm,setConfirm]=useState(false);
+const canPublish=user?.role!=='STUDENT';
+const load=useCallback(async()=>{setError('');try{const list=await request<MobileNotice[]>('/notices');setNotices(list);if(user?.role==='FACULTY'){const assignments=await request<ClassChoice[]>('/attendance/register/classes');setClasses(assignments);setSelectedSection((v)=>v||assignments[0]?.sectionId||'')}}catch(e){setError(e instanceof Error?e.message:'Could not load notices')}finally{setLoading(false);setRefreshing(false)}},[user?.role]);
+useFocusEffect(useCallback(()=>{void load()},[load]));
+function audienceBody(){if(user?.role==='FACULTY')return{audience:'SECTION',sectionId:selectedSection};if(user?.role==='HOD')return{audience:'DEPARTMENT'};return{audience:'ALL_STUDENTS'}}
+async function publish(){setBusy(true);setError('');try{await request('/notices',{method:'POST',body:JSON.stringify({title:title.trim(),body:body.trim(),priority:'NORMAL',...audienceBody()})});setSuccess('Notice published and in-app notifications created.');setTitle('');setBody('');setConfirm(false);await load()}catch(e){setError(e instanceof Error?e.message:'Could not publish notice')}finally{setBusy(false)}}
+if(loading&&!notices.length)return <LoadingState label="Loading notices visible to your role…"/>;
+return <ScrollView contentContainerStyle={styles.page} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={()=>{setRefreshing(true);void load()}} tintColor={palette.navy}/>}>{error?<ErrorState message={error} onRetry={()=>void load()}/>:null}{success?<Surface style={styles.success}><Text style={styles.successText}>{success}</Text></Surface>:null}
+{canPublish?<><SectionHeading title="Publish a notice" subtitle={user?.role==='FACULTY'?'Assigned section only':user?.role==='HOD'?'Your department only':'College-wide notice'}/>{user?.role==='FACULTY'&&<ChoiceField label="Assigned section" value={selectedSection} options={classes.map((item)=>({label:`${item.departmentCode} · Year ${item.year} · ${item.sectionName} · ${item.subjectCode}`,value:item.sectionId}))} onChange={setSelectedSection}/>}
+<FormField label="Notice title" value={title} onChangeText={setTitle} placeholder="Add a concise title" maxLength={180}/><FormField label="Notice details" value={body} onChangeText={setBody} placeholder="Provide the information students need…" multiline maxLength={5000}/><AppButton title="Review notice" variant="secondary" onPress={()=>setConfirm(true)} disabled={title.trim().length<3||body.trim().length<4||(user?.role==='FACULTY'&&!selectedSection)}/></>:null}
+<SectionHeading title="College notices" subtitle={`${notices.length} visible notice(s)`}/>{notices.length?notices.map((notice)=><Surface key={notice.id} style={styles.notice}><View style={styles.titleRow}><Text style={styles.title}>{notice.title}</Text><StatusPill label={notice.priority} tone={notice.priority==='URGENT'||notice.priority==='HIGH'?'warning':'neutral'}/></View><Text style={styles.body}>{notice.body}</Text><Text style={styles.meta}>{notice.audience.replaceAll('_',' ')} · {notice.publishedAt?new Date(notice.publishedAt).toLocaleString('en-IN'):'Published'}</Text></Surface>):<EmptyState title="No notices for this account" detail="Notices are filtered by role, department, year, and section."/>}
+<ConfirmDialog visible={confirm} title="Publish notice?" detail={`The notice will be sent to ${user?.role==='FACULTY'?'your selected assigned section':user?.role==='HOD'?'your department':'the college student audience'} and in-app notifications will be created.`} confirmLabel="Publish notice" busy={busy} onCancel={()=>setConfirm(false)} onConfirm={()=>void publish()}><Text style={styles.confirmTitle}>{title}</Text><Text style={styles.confirmBody}>{body}</Text></ConfirmDialog>
+</ScrollView>}
+const styles=StyleSheet.create({page:{padding:15,paddingBottom:32,gap:8},notice:{gap:8},titleRow:{flexDirection:'row',alignItems:'flex-start',justifyContent:'space-between',gap:8},title:{fontSize:13,fontWeight:'900',color:palette.ink,flex:1},body:{fontSize:11,color:palette.ink,lineHeight:18},meta:{fontSize:9,color:palette.subtle},success:{backgroundColor:palette.goodBg,borderColor:'#cde7da'},successText:{fontSize:10,color:palette.good,fontWeight:'800'},confirmTitle:{fontWeight:'900',color:palette.ink,fontSize:13,marginTop:10},confirmBody:{fontSize:11,color:palette.muted,lineHeight:16,marginTop:6}});

@@ -39,14 +39,14 @@ export const users = pgTable('users', {
   email: varchar('email', { length: 180 }).notNull().unique(), passwordHash: text('password_hash').notNull(),
   role: userRoleEnum('role').notNull(), fullName: varchar('full_name', { length: 140 }).notNull(), phone: varchar('phone', { length: 24 }),
   departmentId: uuid('department_id').references(() => departments.id), active: boolean('active').default(true).notNull(),
-  isDemo: boolean('is_demo').default(false).notNull(), lastLoginAt: timestamp('last_login_at', { withTimezone: true }), createdAt: createdAt(), updatedAt: updatedAt(),
+  isDemo: boolean('is_demo').default(false).notNull(), passwordChangedAt: timestamp('password_changed_at', { withTimezone: true }), lastLoginAt: timestamp('last_login_at', { withTimezone: true }), createdAt: createdAt(), updatedAt: updatedAt(),
 }, (t) => [index('users_role_idx').on(t.role), index('users_department_idx').on(t.departmentId)]);
 export const studentProfiles = pgTable('student_profiles', {
   id: uuid('id').defaultRandom().primaryKey(), userId: uuid('user_id').notNull().unique().references(() => users.id, { onDelete: 'cascade' }),
   rollNumber: varchar('roll_number', { length: 32 }).notNull().unique(), departmentId: uuid('department_id').notNull().references(() => departments.id),
   courseId: uuid('course_id').references(() => courses.id), sectionId: uuid('section_id').notNull().references(() => sections.id),
   semesterId: uuid('semester_id').references(() => semesters.id), year: integer('year').notNull(), parentName: varchar('parent_name', { length: 140 }),
-  parentPhone: varchar('parent_phone', { length: 24 }), admissionYear: integer('admission_year'), address: text('address'), active: boolean('active').default(true).notNull(),
+  parentPhone: varchar('parent_phone', { length: 24 }), parentSmsConsent: boolean('parent_sms_consent').default(false).notNull(), admissionYear: integer('admission_year'), address: text('address'), active: boolean('active').default(true).notNull(),
   createdAt: createdAt(), updatedAt: updatedAt(),
 }, (t) => [index('students_dept_year_idx').on(t.departmentId, t.year), index('students_section_idx').on(t.sectionId)]);
 export const facultyProfiles = pgTable('faculty_profiles', {
@@ -117,12 +117,13 @@ export const feePayments = pgTable('fee_payments', {
 });
 export const smsCampaigns = pgTable('sms_campaigns', {
   id: uuid('id').defaultRandom().primaryKey(), name: varchar('name', { length: 160 }).notNull(), message: text('message').notNull(), audience: varchar('audience', { length: 32 }).notNull(),
-  status: varchar('status', { length: 20 }).default('DRAFT').notNull(), scheduledAt: timestamp('scheduled_at', { withTimezone: true }), createdBy: uuid('created_by').notNull().references(() => users.id), createdAt: createdAt(), updatedAt: updatedAt(),
-});
+  status: varchar('status', { length: 20 }).default('DRAFT').notNull(), scheduledAt: timestamp('scheduled_at', { withTimezone: true }), createdBy: uuid('created_by').notNull().references(() => users.id),
+  targetDepartmentId: uuid('target_department_id').references(() => departments.id), targetSectionId: uuid('target_section_id').references(() => sections.id), attendanceSessionId: uuid('attendance_session_id').references(() => attendanceSessions.id, { onDelete: 'set null' }), createdAt: createdAt(), updatedAt: updatedAt(),
+}, (t) => [index('sms_campaigns_target_department_idx').on(t.targetDepartmentId), index('sms_campaigns_target_section_idx').on(t.targetSectionId), uniqueIndex('sms_campaigns_attendance_session_uq').on(t.attendanceSessionId)]);
 export const smsRecipients = pgTable('sms_recipients', {
   id: uuid('id').defaultRandom().primaryKey(), campaignId: uuid('campaign_id').notNull().references(() => smsCampaigns.id, { onDelete: 'cascade' }),
-  userId: uuid('user_id').references(() => users.id), phone: varchar('phone', { length: 24 }).notNull(), status: varchar('status', { length: 20 }).default('PENDING').notNull(), providerId: varchar('provider_id', { length: 100 }), createdAt: createdAt(),
-});
+  userId: uuid('user_id').references(() => users.id), studentId: uuid('student_id').references(() => studentProfiles.id, { onDelete: 'set null' }), phone: varchar('phone', { length: 24 }).notNull(), status: varchar('status', { length: 20 }).default('PENDING').notNull(), providerId: varchar('provider_id', { length: 100 }), message: text('message'), errorDetail: varchar('error_detail', { length: 200 }), attempts: integer('attempts').default(0).notNull(), sentAt: timestamp('sent_at', { withTimezone: true }), createdAt: createdAt(),
+}, (t) => [index('sms_recipients_campaign_student_idx').on(t.campaignId, t.studentId), uniqueIndex('sms_recipients_campaign_student_uq').on(t.campaignId, t.studentId)]);
 export const auditLogs = pgTable('audit_logs', {
   id: uuid('id').defaultRandom().primaryKey(), actorId: uuid('actor_id').references(() => users.id), action: varchar('action', { length: 80 }).notNull(),
   module: varchar('module', { length: 60 }).notNull(), recordId: varchar('record_id', { length: 80 }), oldValue: jsonb('old_value'), newValue: jsonb('new_value'), ip: varchar('ip', { length: 64 }), createdAt: createdAt(),

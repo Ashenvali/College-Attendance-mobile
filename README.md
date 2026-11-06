@@ -12,7 +12,7 @@ A mobile-first college management portal for **Brindavan Institute of Technology
 - Functional faculty attendance register: assigned-class list → date roster → Present/Absent/Late and mark-all → live counters → confirmation → transactional database save/upsert → subject attendance recalculation → audit record → threshold notification.
 - Student attendance view reads those same PostgreSQL attendance records; HOD/leadership analytics aggregate saved attendance.
 - Role-scoped notices with in-app notification fan-out/read state; exams, results/marks, fees, timetable, assignments, events, reports/export, audit records, and SMS campaign architecture.
-- A separate Expo/React Native client for mobile login, student attendance, and faculty attendance operations; it calls the same API/database.
+- Expo Router mobile app (apps/mobile) calling the same API: role-based tabs, attendance, absent-student parent SMS, SMS dashboard, notices, profile and password change.
 - OpenAPI document at `/api/openapi.json`; API health at `/health`.
 
 ## Project structure
@@ -51,30 +51,33 @@ Prerequisites: Node.js 20+, npm, PostgreSQL 16+. Docker is optional.
 
 ```bash
 cp .env.example .env
-# Start PostgreSQL. Option A: installed PostgreSQL service.
-# Option B: docker compose up -d postgres
+# Ubuntu with PostgreSQL installed:
+sudo systemctl start postgresql
+pg_isready
+# Docker alternative: docker compose up -d postgres
 npm install
-npm run db:migrate
-npm run db:seed
+npm run db:setup
 npm run dev
 ```
 
-- Web portal: `http://localhost:5173`
+- Web portal: `http://localhost:3000`
 - REST API: `http://localhost:3001/api`
 - Health check: `http://localhost:3001/health`
 - OpenAPI: `http://localhost:3001/api/openapi.json`
 
-The API and Vite dev server run together. Vite proxies `/api` to the local Express service. `npm run build` creates the web build and API TypeScript build; `npm run typecheck` checks the API and web, and `npm run mobile:typecheck` checks the Expo client. `npm run test:smoke` runs end-to-end API workflows and writes fictional development records (attendance, result, notice, and mock campaign) to PostgreSQL. In production, run the compiled API with `NODE_ENV=production`; Express will serve `apps/web/dist` when built.
+The API and Vite dev server run together. Vite proxies `/api` to the local Express service. `npm run build` creates the web build and API TypeScript build; `npm run typecheck` checks the API and web, and `npm run mobile:typecheck` checks the Expo client. `npm run test:smoke` runs end-to-end API workflows and writes fictional development records (attendance, result, notice, and mock campaign) to PostgreSQL. The managed website builds the same API and portal into a container; Express serves `apps/web/dist` on the platform-provided `PORT` (3000 by default).
 
 ## Environment variables
 
 Copy `.env.example` to `.env`. Required in production:
 
-- `DATABASE_URL`: PostgreSQL connection string
-- `JWT_SECRET`: high-entropy private secret (at least 32 random characters)
-- `WEB_ORIGIN`: allowed frontend origin(s)
+- `DATABASE_URL`: PostgreSQL connection string; for this IPv4-hosted website use the selected Supabase project's SSL-enabled Supavisor Session Pooler connection (port 5432)
+- `BITSKNL_AUTH_SIGNING_SECRET`: high-entropy private secret (at least 32 random characters); the app-specific key used to sign and verify JWT sessions
+- `WEB_ORIGIN`: optional explicitly allowed cross-origin frontend origin(s); same-origin portal API requests are the default
 
-Configurable: `JWT_EXPIRES_IN`, `PORT`, `ATTENDANCE_THRESHOLD` (defaults to 75), `NODE_ENV`. Never expose server env values to web/mobile bundles.
+Configurable: `JWT_EXPIRES_IN`, `PORT`, `ATTENDANCE_THRESHOLD` (defaults to 75), `NODE_ENV`. Legacy `JWT_SECRET` is accepted only as a development fallback. Never expose server env values to web/mobile bundles.
+
+For Supabase, the API enforces `sslmode=verify-full` and trusts the public root certificate `apps/api/certs/supabase-prod-ca-2021.crt`, linked from the project's Database Settings → SSL Configuration. The direct Supabase database hostname is IPv6-only on this account; use the exact Shared Session Pooler URI copied from the Dashboard's Connect panel. The CA certificate is public and bundled only into the server image; database credentials remain in the protected runtime secret store.
 
 ### Optional production services
 
@@ -95,17 +98,11 @@ npm run db:migrate
 
 `npm run db:seed` is idempotent and provides fictional users, BITS department names, courses/sections, DBMS and other subjects, classes, historical attendance, timetable, exam, fees, notices, assignment, and event data.
 
-## Fictional development demo accounts
+## Demo accounts (development only)
 
-| Role | Login ID | Password |
-|---|---|---|
-| Student | `student@demo.bits` | `Student@123` |
-| Faculty | `faculty@demo.bits` | `Faculty@123` |
-| HOD | `hod@demo.bits` | `Hod@123` |
-| Principal | `principal@demo.bits` | `Principal@123` |
-| Admin | `admin@demo.bits` | `Admin@123` |
+`npm run db:seed` now refuses to run unless `ALLOW_DEMO_SEED=true`, and must **never** be run against the production database. The mobile app no longer shows demo credentials. To lock out any existing demo accounts (without deleting data): `npm run db:disable-demo`.
 
-The faculty account is only assigned to the fictional CSE 3rd-year Section A DBMS/OS classes. The seed provides 12 fictional students. The student account is Rahul Kumar, roll number `DEMO-CSE-001`.
+Seeded development logins (fictional data; passwords are in `apps/api/src/db/seed.ts`) exist only on development databases.
 
 ## Key attendance workflow
 
@@ -151,7 +148,16 @@ Full initial contract: `docs/openapi.json`.
 
 ## Security and production notes
 
-- Demo identities are not production accounts. Replace/remove demo seed credentials before deployment.
-- Use a managed PostgreSQL database, TLS, secret manager, restrictive CORS, backups, rotation, and stronger account lifecycle/MFA controls for production.
-- Current JWT sessions are short-lived bearer tokens; browser holds them in `sessionStorage`. Refresh-token rotation/password reset, production account provisioning, upload storage, FCM delivery, payment processing, queued/scheduled SMS worker, and native app store builds remain integration work. The current npm audit still reports advisories in parts of the Expo/React Native and Drizzle Kit toolchain (no critical findings at the last check); review current advisories and platform vendor guidance before production release.
+- The published site currently uses these demo identities only with fictional sample records. Replace/remove demo credentials before loading real college data.
+- This deployment uses the selected Supabase PostgreSQL project through the IPv4-compatible Shared Session Pooler with CA- and hostname-verified TLS (`verify-full`), and restricts browser CORS to explicitly configured origins (same-origin portal requests work without a CORS grant). Backups, secret rotation, and stronger account lifecycle/MFA controls remain necessary before production use with real records.
+- Current JWT sessions are short-lived bearer tokens; browser holds them in `sessionStorage`. Refresh-token rotation/password reset, production account provisioning, upload storage, FCM delivery, payment processing, queued/scheduled SMS worker, and native app store builds remain integration work. The current full monorepo audit reports 27 findings (11 moderate, 16 high, 0 critical), concentrated in development/mobile and migration tooling; the API-only production dependency tree reports zero advisories. The audit's suggested automatic fixes include incompatible major downgrades, so they were not applied blindly.
 - The SMS provider is explicitly mock by default; demo messaging is not delivered externally.
+- Hosting uses managed on-demand (Autoscale) service: the published HTTPS URL is stable, but an idle container may sleep and take time to cold-start. Supabase documents that Free projects with low database activity may be paused after seven days; restore the project in Supabase if that happens. No paid-plan upgrade or billing change was made.
+- The verified Supabase integration tests intentionally leave clearly fictional demo attendance, marks, a timestamped notice and mock SMS campaign records in the selected project; no external SMS was transmitted.
+
+
+## Security & operations (see docs/FIXES-2026-11-06.md)
+
+- Apply migration `0002_security_sms_absent` (enables RLS on every public table and revokes anon/authenticated access). Then verify in Supabase → Advisors → Security.
+- `npm test` runs database-free unit tests. `npm run db:disable-demo` deactivates demo accounts.
+- Absent-student SMS: `ABSENT_SMS_MODE=off|manual|auto`; see docs/SMS_SETUP.md.

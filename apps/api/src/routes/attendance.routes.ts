@@ -1,11 +1,16 @@
 import { Router } from 'express';
-import { and, desc, eq, gte, lt, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, lt, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../db/client';
 import { attendanceRecords, attendanceSessions, departments, facultyProfiles, facultySubjects, notifications, sections, studentProfiles, subjects, users } from '../db/schema';
 import { allowRoles, requireAuth } from '../middleware/auth';
 import { fail, ok } from '../utils/http';
 import { writeAudit } from '../services/audit.service';
+import { absentSmsMode } from '../services/sms.service';
+import { loadSession, processAbsentSms } from '../services/absent-sms.service';
+
+const todayIst = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+const daysBetween = (from: string, to: string) => Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
 
 export const attendanceRouter = Router();
 attendanceRouter.use(requireAuth);
@@ -19,7 +24,7 @@ attendanceRouter.get('/register/classes', allowRoles('FACULTY', 'ADMIN', 'SUPER_
     const facultyId = req.user!.role === 'FACULTY' ? await getFacultyId(req.user!.id) : undefined;
     const rows = await db.select({ subjectId: subjects.id, subjectCode: subjects.code, subjectName: subjects.name, sectionId: sections.id, sectionName: sections.name, year: sections.year, departmentId: departments.id, departmentName: departments.name, departmentCode: departments.code })
       .from(facultySubjects).innerJoin(facultyProfiles, eq(facultySubjects.facultyId, facultyProfiles.id)).innerJoin(subjects, eq(facultySubjects.subjectId, subjects.id)).innerJoin(sections, eq(facultySubjects.sectionId, sections.id)).innerJoin(departments, eq(sections.departmentId, departments.id))
-      .where(facultyId ? eq(facultySubjects.facultyId, facultyId) : undefined);
+      .where(facultyId ? eq(facultySubjects.facultyId, facultyId) : req.user!.role === 'HOD' && req.user!.departmentId ? eq(sections.departmentId, req.user!.departmentId) : undefined);
     return ok(res, rows);
   } catch (e) { next(e); }
 });
@@ -60,6 +65,10 @@ attendanceRouter.post('/', allowRoles('FACULTY', 'ADMIN', 'SUPER_ADMIN'), async 
     const parsed = saveSchema.safeParse(req.body);
     if (!parsed.success) return fail(res, 400, parsed.error.issues[0]?.message ?? 'Invalid attendance data', 'VALIDATION_ERROR');
     const data = parsed.data;
+    const today = todayIst();
+    if (data.date > today) return fail(res, 400, 'Attendance cannot be marked for a future date', 'FUTURE_DATE');
+    const editWindowDays = Number(process.env.ATTENDANCE_EDIT_WINDOW_DAYS || 7);
+    if (req.user!.role === 'FACULTY' && daysBetween(data.date, today) > editWindowDays) return fail(res, 403, `Attendance older than ${editWindowDays} days can only be changed by an administrator`, 'EDIT_WINDOW_EXPIRED');
     const facultyId = req.user!.role === 'FACULTY' ? await getFacultyId(req.user!.id) : undefined;
     if (req.user!.role === 'FACULTY' && (!facultyId || !(await canTeach(facultyId, data.subjectId, data.sectionId)))) return fail(res, 403, 'You can only mark attendance for your assigned classes', 'CLASS_NOT_ASSIGNED');
     const [subject] = await db.select({ id: subjects.id, name: subjects.name, code: subjects.code }).from(subjects).where(eq(subjects.id, data.subjectId)).limit(1);
@@ -71,13 +80,16 @@ attendanceRouter.post('/', allowRoles('FACULTY', 'ADMIN', 'SUPER_ADMIN'), async 
     const threshold = Number(process.env.ATTENDANCE_THRESHOLD || 75);
     const changed: Array<{ studentId: string; oldStatus: string | null; newStatus: string }> = [];
     const alerts: Array<{ userId: string; percentage: number }> = [];
+    // Admin saves are attributed to the faculty actually assigned to this subject/section (never an arbitrary faculty row).
+    const sessionFacultyId = facultyId ?? (await db.select({ id: facultySubjects.facultyId }).from(facultySubjects).where(and(eq(facultySubjects.subjectId, data.subjectId), eq(facultySubjects.sectionId, data.sectionId))).limit(1))[0]?.id;
+    if (!sessionFacultyId) return fail(res, 409, 'No faculty is assigned to this subject and section', 'NO_FACULTY_ASSIGNED');
     const session = await db.transaction(async (tx) => {
       const [current] = await tx.select({ id: attendanceSessions.id }).from(attendanceSessions).where(and(eq(attendanceSessions.subjectId, data.subjectId), eq(attendanceSessions.sectionId, data.sectionId), eq(attendanceSessions.classDate, data.date))).limit(1);
       const previous = current ? await tx.select({ studentId: attendanceRecords.studentId, status: attendanceRecords.status }).from(attendanceRecords).where(eq(attendanceRecords.sessionId, current.id)) : [];
       const priorCounts = new Map<string, { attended: number; total: number }>();
       const allHistory = await tx.select({ studentId: attendanceRecords.studentId, status: attendanceRecords.status }).from(attendanceRecords).innerJoin(attendanceSessions, eq(attendanceRecords.sessionId, attendanceSessions.id)).where(and(eq(attendanceSessions.subjectId, data.subjectId), eq(attendanceSessions.sectionId, data.sectionId)));
       for (const row of allHistory) { const c = priorCounts.get(row.studentId) ?? { attended: 0, total: 0 }; c.total++; if (row.status !== 'ABSENT') c.attended++; priorCounts.set(row.studentId, c); }
-      const [sessionRow] = await tx.insert(attendanceSessions).values({ subjectId: data.subjectId, sectionId: data.sectionId, facultyId: facultyId ?? (await tx.select({ id: facultyProfiles.id }).from(facultyProfiles).limit(1))[0].id, classDate: data.date, markedBy: req.user!.id })
+      const [sessionRow] = await tx.insert(attendanceSessions).values({ subjectId: data.subjectId, sectionId: data.sectionId, facultyId: sessionFacultyId, classDate: data.date, markedBy: req.user!.id })
         .onConflictDoUpdate({ target: [attendanceSessions.subjectId, attendanceSessions.sectionId, attendanceSessions.classDate], set: { updatedAt: new Date(), markedBy: req.user!.id } }).returning({ id: attendanceSessions.id });
       const previousMap = new Map(previous.map((r) => [r.studentId, r.status]));
       for (const record of data.records) {
@@ -100,7 +112,13 @@ attendanceRouter.post('/', allowRoles('FACULTY', 'ADMIN', 'SUPER_ADMIN'), async 
     await writeAudit({ actorId: req.user!.id, action: 'ATTENDANCE_SAVED', module: 'ATTENDANCE', recordId: session.id, newValue: { subjectId: data.subjectId, sectionId: data.sectionId, date: data.date, records: changed }, ip: req.ip });
     const counts = data.records.reduce((a, r) => { a[r.status.toLowerCase() as 'present' | 'absent' | 'late']++; return a; }, { present: 0, absent: 0, late: 0 });
     const total = data.records.length;
-    return ok(res, { sessionId: session.id, total, ...counts, percentage: total ? Math.round(((counts.present + counts.late) / total) * 1000) / 10 : 0, lowAttendanceAlerts: alerts.length }, 'Attendance saved successfully');
+    // Attendance is already committed. Automatic parent SMS (ABSENT_SMS_MODE=auto) must never fail or roll back the save.
+    let absentSms: unknown = null;
+    if (counts.absent > 0 && absentSmsMode() === 'auto') {
+      try { const info = await loadSession(session.id); if (info) absentSms = await processAbsentSms(info, { id: req.user!.id, ip: req.ip }); }
+      catch (smsError) { console.error('Automatic absent SMS failed', smsError instanceof Error ? smsError.message : 'unknown'); absentSms = { error: 'Automatic SMS failed; use Retry from the attendance screen.' }; }
+    }
+    return ok(res, { sessionId: session.id, total, ...counts, percentage: total ? Math.round(((counts.present + counts.late) / total) * 1000) / 10 : 0, lowAttendanceAlerts: alerts.length, absentSmsMode: absentSmsMode(), absentSms }, 'Attendance saved successfully');
   } catch (e) { next(e); }
 });
 
@@ -124,7 +142,7 @@ attendanceRouter.get('/history', allowRoles('FACULTY', 'HOD', 'PRINCIPAL', 'ADMI
     const sessions = await db.select({ id: attendanceSessions.id, date: attendanceSessions.classDate, subject: subjects.name, code: subjects.code, section: sections.name, year: sections.year, departmentId: sections.departmentId, department: departments.code, facultyId: attendanceSessions.facultyId })
       .from(attendanceSessions).innerJoin(subjects, eq(attendanceSessions.subjectId, subjects.id)).innerJoin(sections, eq(attendanceSessions.sectionId, sections.id)).innerJoin(departments, eq(sections.departmentId, departments.id))
       .where(facultyId ? eq(attendanceSessions.facultyId, facultyId) : req.user!.role === 'HOD' && req.user!.departmentId ? eq(sections.departmentId, req.user!.departmentId) : undefined).orderBy(desc(attendanceSessions.classDate)).limit(100);
-    const records = await db.select({ sessionId: attendanceRecords.sessionId, status: attendanceRecords.status }).from(attendanceRecords);
+    const records = sessions.length ? await db.select({ sessionId: attendanceRecords.sessionId, status: attendanceRecords.status }).from(attendanceRecords).where(inArray(attendanceRecords.sessionId, sessions.map((x) => x.id))) : [];
     return ok(res, sessions.map((s) => { const rows = records.filter((r) => r.sessionId === s.id); const present = rows.filter((r) => r.status === 'PRESENT').length, absent = rows.filter((r) => r.status === 'ABSENT').length, late = rows.filter((r) => r.status === 'LATE').length; return { ...s, total: rows.length, present, absent, late, percentage: rows.length ? Math.round((present + late) / rows.length * 1000) / 10 : 0 }; }));
   } catch (e) { next(e); }
 });

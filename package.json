@@ -2,6 +2,7 @@
   "name": "bits-kurnool-college-management",
   "private": true,
   "version": "0.1.0",
+  "packageManager": "npm@10.9.2",
   "workspaces": [
     "apps/api",
     "apps/web",
@@ -9,7 +10,7 @@
   ],
   "scripts": {
     "dev": "concurrently -k -n API,WEB -c blue,green \"npm:dev:api\" \"npm:dev:web\"",
-    "dev:api": "tsx watch apps/api/src/server.ts",
+    "dev:api": "PORT=3001 tsx watch apps/api/src/server.ts",
     "dev:web": "vite apps/web --config apps/web/vite.config.ts --host 0.0.0.0",
     "build": "npm run build --workspace @bitsknl/api && npm run build --workspace @bitsknl/web",
     "db:migrate": "tsx apps/api/src/db/migrate.ts",
@@ -17,16 +18,14 @@
     "db:setup": "npm run db:migrate && npm run db:seed",
     "typecheck": "npm run typecheck --workspace @bitsknl/api && npm run typecheck --workspace @bitsknl/web",
     "mobile:typecheck": "npm --prefix apps/mobile run typecheck",
-    "test:smoke": "node scripts/smoke-test.mjs && node scripts/module-smoke-test.mjs"
+    "test:smoke": "node scripts/smoke-test.mjs && node scripts/module-smoke-test.mjs",
+    "test": "tsx --test apps/api/tests/*.test.ts",
+    "db:disable-demo": "tsx apps/api/src/db/disable-demo.ts"
   },
   "devDependencies": {
     "concurrently": "^9.1.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vite": "^6.4.3"
-  },
-  "dependencies": {
-    "@vercel/speed-insights": "^2.0.0",
-    "drizzle-orm": "^0.45.4"
   }
 }

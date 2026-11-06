@@ -8,10 +8,10 @@ import { users, studentProfiles, facultyProfiles, departments, sections } from '
 import { requireAuth } from '../middleware/auth';
 import { fail, ok } from '../utils/http';
 import { writeAudit } from '../services/audit.service';
+import { getJwtSecret } from '../utils/jwt-secret';
 
 export const authRouter = Router();
 const loginSchema = z.object({ identifier: z.string().min(1).max(180), password: z.string().min(1).max(128) });
-const jwtSecret = () => process.env.JWT_SECRET || 'dev-only-bits-kurnool-secret-change-me';
 
 authRouter.post('/login', async (req, res, next) => {
   try {
@@ -21,7 +21,7 @@ authRouter.post('/login', async (req, res, next) => {
     const [user] = await db.select().from(users).where(or(eq(users.loginId, identifier), eq(users.email, identifier.toLowerCase()))).limit(1);
     if (!user || !user.active || !(await bcrypt.compare(parsed.data.password, user.passwordHash))) return fail(res, 401, 'User ID or password is incorrect', 'INVALID_CREDENTIALS');
     const expiresIn = (process.env.JWT_EXPIRES_IN || '8h') as jwt.SignOptions['expiresIn'];
-    const token = jwt.sign({ role: user.role, departmentId: user.departmentId, fullName: user.fullName, loginId: user.loginId, isDemo: user.isDemo }, jwtSecret(), { subject: user.id, expiresIn });
+    const token = jwt.sign({ role: user.role, departmentId: user.departmentId, fullName: user.fullName, loginId: user.loginId, isDemo: user.isDemo }, getJwtSecret(), { subject: user.id, expiresIn });
     await db.update(users).set({ lastLoginAt: new Date(), updatedAt: new Date() }).where(eq(users.id, user.id));
     await writeAudit({ actorId: user.id, action: 'LOGIN', module: 'AUTH', ip: req.ip });
     return ok(res, { token, user: { id: user.id, loginId: user.loginId, email: user.email, fullName: user.fullName, role: user.role, departmentId: user.departmentId, isDemo: user.isDemo } }, 'Signed in successfully');
@@ -45,5 +45,22 @@ authRouter.get('/me', requireAuth, async (req, res, next) => {
       if (row) profile = row;
     }
     return ok(res, { user: { id: user.id, loginId: user.loginId, fullName: user.fullName, role: user.role, departmentId: user.departmentId, isDemo: user.isDemo }, profile });
+  } catch (error) { next(error); }
+});
+
+const changeSchema = z.object({ currentPassword: z.string().min(1).max(128), newPassword: z.string().min(10, 'New password must be at least 10 characters').max(128) });
+authRouter.post('/change-password', requireAuth, async (req, res, next) => {
+  try {
+    const parsed = changeSchema.safeParse(req.body);
+    if (!parsed.success) return fail(res, 400, parsed.error.issues[0]?.message || 'Invalid request', 'VALIDATION_ERROR');
+    if (parsed.data.newPassword === parsed.data.currentPassword) return fail(res, 400, 'Choose a different password', 'VALIDATION_ERROR');
+    const [user] = await db.select().from(users).where(eq(users.id, req.user!.id)).limit(1);
+    if (!user || !(await bcrypt.compare(parsed.data.currentPassword, user.passwordHash))) return fail(res, 401, 'Current password is incorrect', 'INVALID_CREDENTIALS');
+    const now = new Date();
+    await db.update(users).set({ passwordHash: await bcrypt.hash(parsed.data.newPassword, 12), passwordChangedAt: now, updatedAt: now }).where(eq(users.id, user.id));
+    await writeAudit({ actorId: user.id, action: 'PASSWORD_CHANGED', module: 'AUTH', recordId: user.id, ip: req.ip });
+    const expiresIn = (process.env.JWT_EXPIRES_IN || '8h') as jwt.SignOptions['expiresIn'];
+    const token = jwt.sign({ role: user.role, departmentId: user.departmentId, fullName: user.fullName, loginId: user.loginId, isDemo: user.isDemo }, getJwtSecret(), { subject: user.id, expiresIn });
+    return ok(res, { token }, 'Password changed. Other sessions were signed out.');
   } catch (error) { next(error); }
 });
