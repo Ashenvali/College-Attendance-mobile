@@ -17,7 +17,9 @@ try {
   const classes = await req('/attendance/register/classes', faculty.token);
   if (!classes.length) throw new Error('Faculty has no assigned class');
   const clazz = classes.find((c) => c.subjectCode === 'CS501') || classes[0];
-  const date = process.env.ATTENDANCE_TEST_DATE || '2026-10-04';
+  // Default to today in IST: faculty may only edit attendance within ATTENDANCE_EDIT_WINDOW_DAYS (7),
+  // so a hard-coded historical date fails once the repository ages.
+  const date = process.env.ATTENDANCE_TEST_DATE || new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
   const register = await req(`/attendance/register?subjectId=${clazz.subjectId}&sectionId=${clazz.sectionId}&date=${date}`, faculty.token);
   const rahul = register.students.find((s) => s.rollNumber === 'DEMO-CSE-001');
   if (!rahul) throw new Error('Seeded student DEMO-CSE-001 is not in faculty roster');
@@ -29,7 +31,7 @@ try {
   const student = await login('student@demo.bits', 'Student@123');
   const attendance = await req('/attendance/me', student.token);
   const subject = attendance.subjects.find((s) => s.subjectCode === 'CS501');
-  if (!subject || subject.total < 5 || subject.attendancePercentage >= 75) throw new Error('Student attendance did not reflect saved faculty record or threshold');
+  if (!subject || subject.total < 5 || subject.attendancePercentage >= 75) throw new Error(`Student attendance did not reflect saved faculty record or threshold (got ${subject ? `${subject.attendancePercentage}% from ${subject.total}` : 'no CS501 record'})`);
   const notifications = await req('/notifications', student.token);
   if (!notifications.some((n) => n.title === 'Low attendance alert')) throw new Error('Expected low-attendance in-app alert was not created');
   assertions.push(`Student read the saved ${subject.subjectCode} record (${subject.attendancePercentage}% from ${subject.total} classes)`);

@@ -39,7 +39,7 @@ export const users = pgTable('users', {
   email: varchar('email', { length: 180 }).notNull().unique(), passwordHash: text('password_hash').notNull(),
   role: userRoleEnum('role').notNull(), fullName: varchar('full_name', { length: 140 }).notNull(), phone: varchar('phone', { length: 24 }),
   departmentId: uuid('department_id').references(() => departments.id), active: boolean('active').default(true).notNull(),
-  isDemo: boolean('is_demo').default(false).notNull(), passwordChangedAt: timestamp('password_changed_at', { withTimezone: true }), lastLoginAt: timestamp('last_login_at', { withTimezone: true }), createdAt: createdAt(), updatedAt: updatedAt(),
+  isDemo: boolean('is_demo').default(false).notNull(), passwordChangedAt: timestamp('password_changed_at', { withTimezone: true }), sessionVersion: integer('session_version').default(0).notNull(), lastLoginAt: timestamp('last_login_at', { withTimezone: true }), createdAt: createdAt(), updatedAt: updatedAt(),
 }, (t) => [index('users_role_idx').on(t.role), index('users_department_idx').on(t.departmentId)]);
 export const studentProfiles = pgTable('student_profiles', {
   id: uuid('id').defaultRandom().primaryKey(), userId: uuid('user_id').notNull().unique().references(() => users.id, { onDelete: 'cascade' }),

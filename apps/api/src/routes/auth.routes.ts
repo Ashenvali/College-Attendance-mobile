@@ -10,6 +10,15 @@ import { fail, ok } from '../utils/http';
 import { writeAudit } from '../services/audit.service';
 import { getJwtSecret } from '../utils/jwt-secret';
 
+const signSession = (user: { id: string; role: string; departmentId: string | null; fullName: string; loginId: string; isDemo: boolean; sessionVersion: number }) => {
+  const expiresIn = (process.env.JWT_EXPIRES_IN || '8h') as jwt.SignOptions['expiresIn'];
+  return jwt.sign(
+    { role: user.role, departmentId: user.departmentId, fullName: user.fullName, loginId: user.loginId, isDemo: user.isDemo, sessionVersion: user.sessionVersion },
+    getJwtSecret(),
+    { subject: user.id, expiresIn },
+  );
+};
+
 export const authRouter = Router();
 const loginSchema = z.object({ identifier: z.string().min(1).max(180), password: z.string().min(1).max(128) });
 
@@ -20,16 +29,27 @@ authRouter.post('/login', async (req, res, next) => {
     const identifier = parsed.data.identifier.trim();
     const [user] = await db.select().from(users).where(or(eq(users.loginId, identifier), eq(users.email, identifier.toLowerCase()))).limit(1);
     if (!user || !user.active || !(await bcrypt.compare(parsed.data.password, user.passwordHash))) return fail(res, 401, 'User ID or password is incorrect', 'INVALID_CREDENTIALS');
-    const expiresIn = (process.env.JWT_EXPIRES_IN || '8h') as jwt.SignOptions['expiresIn'];
-    const token = jwt.sign({ role: user.role, departmentId: user.departmentId, fullName: user.fullName, loginId: user.loginId, isDemo: user.isDemo }, getJwtSecret(), { subject: user.id, expiresIn });
+    const token = signSession(user);
     await db.update(users).set({ lastLoginAt: new Date(), updatedAt: new Date() }).where(eq(users.id, user.id));
     await writeAudit({ actorId: user.id, action: 'LOGIN', module: 'AUTH', ip: req.ip });
     return ok(res, { token, user: { id: user.id, loginId: user.loginId, email: user.email, fullName: user.fullName, role: user.role, departmentId: user.departmentId, isDemo: user.isDemo } }, 'Signed in successfully');
   } catch (error) { next(error); }
 });
-authRouter.post('/logout', requireAuth, async (req, res) => {
-  await writeAudit({ actorId: req.user!.id, action: 'LOGOUT', module: 'AUTH', ip: req.ip });
-  return ok(res, { loggedOut: true }, 'Signed out');
+authRouter.post('/logout', requireAuth, async (req, res, next) => {
+  try {
+    // Bumping the session version invalidates every issued token for this account, including
+    // tokens copied from another device, so sign-out is effective server-side.
+    await db.update(users).set({ sessionVersion: sql`${users.sessionVersion} + 1`, updatedAt: new Date() }).where(eq(users.id, req.user!.id));
+    await writeAudit({ actorId: req.user!.id, action: 'LOGOUT', module: 'AUTH', ip: req.ip });
+    return ok(res, { loggedOut: true }, 'Signed out');
+  } catch (error) { next(error); }
+});
+authRouter.post('/revoke-sessions', requireAuth, async (req, res, next) => {
+  try {
+    await db.update(users).set({ sessionVersion: sql`${users.sessionVersion} + 1`, updatedAt: new Date() }).where(eq(users.id, req.user!.id));
+    await writeAudit({ actorId: req.user!.id, action: 'SESSIONS_REVOKED', module: 'AUTH', ip: req.ip });
+    return ok(res, { revoked: true }, 'All sessions were signed out. Please sign in again.');
+  } catch (error) { next(error); }
 });
 authRouter.get('/me', requireAuth, async (req, res, next) => {
   try {
@@ -57,10 +77,12 @@ authRouter.post('/change-password', requireAuth, async (req, res, next) => {
     const [user] = await db.select().from(users).where(eq(users.id, req.user!.id)).limit(1);
     if (!user || !(await bcrypt.compare(parsed.data.currentPassword, user.passwordHash))) return fail(res, 401, 'Current password is incorrect', 'INVALID_CREDENTIALS');
     const now = new Date();
-    await db.update(users).set({ passwordHash: await bcrypt.hash(parsed.data.newPassword, 12), passwordChangedAt: now, updatedAt: now }).where(eq(users.id, user.id));
+    const [updated] = await db.update(users)
+      .set({ passwordHash: await bcrypt.hash(parsed.data.newPassword, 12), passwordChangedAt: now, sessionVersion: sql`${users.sessionVersion} + 1`, updatedAt: now })
+      .where(eq(users.id, user.id))
+      .returning({ id: users.id, role: users.role, departmentId: users.departmentId, fullName: users.fullName, loginId: users.loginId, isDemo: users.isDemo, sessionVersion: users.sessionVersion });
     await writeAudit({ actorId: user.id, action: 'PASSWORD_CHANGED', module: 'AUTH', recordId: user.id, ip: req.ip });
-    const expiresIn = (process.env.JWT_EXPIRES_IN || '8h') as jwt.SignOptions['expiresIn'];
-    const token = jwt.sign({ role: user.role, departmentId: user.departmentId, fullName: user.fullName, loginId: user.loginId, isDemo: user.isDemo }, getJwtSecret(), { subject: user.id, expiresIn });
-    return ok(res, { token }, 'Password changed. Other sessions were signed out.');
+    // The current device keeps working with a freshly signed token; every other device is signed out.
+    return ok(res, { token: signSession(updated) }, 'Password changed. Other sessions were signed out.');
   } catch (error) { next(error); }
 });

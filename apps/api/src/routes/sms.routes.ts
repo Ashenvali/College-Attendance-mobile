@@ -1,4 +1,5 @@
 import { Router, type Response } from 'express';
+import rateLimit from 'express-rate-limit';
 import { and, desc, eq, gte, inArray, lt, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../db/client';
@@ -79,6 +80,10 @@ function deliveryPlan(rows: ParentStudent[], mode: 'mock' | 'gateway') {
   };
 }
 
+// Simple per-actor throttle for messaging endpoints (cost control: each send may bill per SMS).
+const smsSendLimit = rateLimit({ windowMs: 60_000, limit: Number(process.env.SMS_RATE_LIMIT_PER_MINUTE || 20), standardHeaders: 'draft-7', legacyHeaders: false,
+  keyGenerator: (req) => `sms:${(req as { user?: { id?: string } }).user?.id ?? req.ip ?? 'unknown'}`, message: { success: false, message: 'Too many SMS requests. Wait a minute and try again.', code: 'RATE_LIMITED' } });
+
 smsRouter.get('/parents/scopes', facultyOrHod, async (req, res, next) => {
   try {
     const user = req.user!;
@@ -137,7 +142,7 @@ smsRouter.get('/parents/campaigns', facultyOrHod, async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-smsRouter.post('/parents/campaigns', facultyOrHod, async (req, res, next) => {
+smsRouter.post('/parents/campaigns', facultyOrHod, smsSendLimit, async (req, res, next) => {
   try {
     const parsed = z.object({ name: z.string().trim().min(3).max(160), message: z.string().trim().min(1).max(1000), ...parentScopeFields.shape }).superRefine(refineParentScope).safeParse(req.body);
     if (!parsed.success) return fail(res, 400, parsed.error.issues[0]?.message || 'Enter a campaign name, message, and valid audience');
@@ -155,7 +160,7 @@ smsRouter.post('/parents/campaigns', facultyOrHod, async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-smsRouter.post('/parents/campaigns/:id/send', facultyOrHod, async (req, res, next) => {
+smsRouter.post('/parents/campaigns/:id/send', facultyOrHod, smsSendLimit, async (req, res, next) => {
   try {
     const [campaign] = await db.select().from(smsCampaigns).where(and(eq(smsCampaigns.id, req.params.id),
       or(eq(smsCampaigns.audience, 'PARENT_SECTION'), eq(smsCampaigns.audience, 'PARENT_DEPARTMENT'))!)).limit(1);
@@ -216,7 +221,7 @@ smsRouter.post('/campaigns', leadership, async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-smsRouter.post('/campaigns/:id/send', leadership, async (req, res, next) => {
+smsRouter.post('/campaigns/:id/send', leadership, smsSendLimit, async (req, res, next) => {
   try {
     const [campaign] = await db.select().from(smsCampaigns).where(eq(smsCampaigns.id, req.params.id)).limit(1);
     if (!campaign) return fail(res, 404, 'Campaign not found');
@@ -267,7 +272,7 @@ async function sessionFor(req: { params: { sessionId?: string }; user?: AuthUser
 smsRouter.get('/absent/:sessionId/preview', absentRoles, async (req, res, next) => {
   try { const s = await sessionFor(req, res); if (!s) return; return ok(res, { ...(await previewAbsent(s)), policy: absentSmsMode() }); } catch (e) { next(e); }
 });
-smsRouter.post('/absent/:sessionId/send', absentRoles, async (req, res, next) => {
+smsRouter.post('/absent/:sessionId/send', absentRoles, smsSendLimit, async (req, res, next) => {
   try {
     if (absentSmsMode() === 'off') return fail(res, 403, 'Absent-student SMS is disabled by the administrator', 'SMS_DISABLED');
     const body = z.object({ studentIds: z.array(z.string().uuid()).max(500).optional() }).safeParse(req.body ?? {});
@@ -276,7 +281,7 @@ smsRouter.post('/absent/:sessionId/send', absentRoles, async (req, res, next) =>
     return ok(res, await processAbsentSms(s, { id: req.user!.id, ip: req.ip }, { studentIds: body.data.studentIds }), 'Absent-student SMS processed');
   } catch (e) { next(e); }
 });
-smsRouter.post('/absent/:sessionId/retry', absentRoles, async (req, res, next) => {
+smsRouter.post('/absent/:sessionId/retry', absentRoles, smsSendLimit, async (req, res, next) => {
   try {
     if (absentSmsMode() === 'off') return fail(res, 403, 'Absent-student SMS is disabled by the administrator', 'SMS_DISABLED');
     const s = await sessionFor(req, res); if (!s) return;

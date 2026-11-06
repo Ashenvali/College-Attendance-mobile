@@ -9,10 +9,11 @@ const keys: Record<string,string> = { 'attendance-history':'attendance-history',
 const adminCreatable = new Set(['students','faculty','departments','courses','sections','faculty-subjects','subjects','exams','fees']);
 function label(s:string){return s.replace(/([a-z])([A-Z])/g,'$1 $2').replace(/_/g,' ').replace(/^./,c=>c.toUpperCase())}
 function display(value: unknown): string { if (value === null || value === undefined || value === '') return '—'; if (typeof value === 'boolean') return value ? 'Active' : 'Inactive'; if (typeof value === 'object') return JSON.stringify(value); if (typeof value === 'string' && value.includes('T') && !Number.isNaN(Date.parse(value))) return new Date(value).toLocaleString('en-IN',{dateStyle:'medium',timeStyle:'short'}); return String(value); }
-export function DataPage({ resource, role }: { resource: string; role: UserRole }) {
-  const [rows,setRows]=useState<Record<string,unknown>[]>([]); const [search,setSearch]=useState(''); const [loading,setLoading]=useState(true); const [error,setError]=useState(''); const [create,setCreate]=useState(false); const [refresh,setRefresh]=useState(0);
+export function DataPage({ resource, role, query = '' }: { resource: string; role: UserRole; query?: string }) {
+  const [rows,setRows]=useState<Record<string,unknown>[]>([]); const [search,setSearch]=useState(query); const [loading,setLoading]=useState(true); const [error,setError]=useState(''); const [create,setCreate]=useState(false); const [refresh,setRefresh]=useState(0);
   const endpoint=keys[resource] ?? resource;
   useEffect(()=>{setLoading(true);const path=resource==='attendance-history'?'/attendance/history':resource==='marks'?'/marks':`/modules/${endpoint}`;api<Record<string,unknown>[]>(path).then((r)=>setRows(Array.isArray(r)?r:[])).catch((e)=>setError(e.message)).finally(()=>setLoading(false));},[endpoint,resource,refresh]);
+  useEffect(()=>{setSearch(query)},[query]);
   const filtered=useMemo(()=>rows.filter((row)=>Object.values(row).join(' ').toLowerCase().includes(search.toLowerCase())),[rows,search]);
   const columns=useMemo(()=>{const preferred=['name','title','subject','code','rollNumber','facultyCode','department','year','section','date','status','percentage','amount','parentSmsConsent','hasParentContact','publishedAt','createdAt','total','present','absent','late'];const keys=rows[0]?Object.keys(rows[0]):[];return [...preferred.filter(k=>keys.includes(k)),...keys.filter(k=>!preferred.includes(k)&&!['id','userId','departmentId','sectionId','studentId','subjectId','facultyId','examinationId','sessionId','actorId','recipientId','createdBy','updatedAt','oldValue','newValue','metadata','passwordHash'].includes(k))].slice(0,8);},[rows]);
   const title=titles[resource]??label(resource);

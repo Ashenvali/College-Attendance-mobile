@@ -19,10 +19,14 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   if (!payload.sub || !payload.role) return fail(res, 401, 'Invalid session', 'INVALID_TOKEN');
   try {
     // Source of truth is the database: deactivated users, changed roles/departments and password changes take effect immediately.
-    const [row] = await db.select({ id: users.id, role: users.role, departmentId: users.departmentId, fullName: users.fullName, loginId: users.loginId, isDemo: users.isDemo, active: users.active, passwordChangedAt: users.passwordChangedAt })
+    const [row] = await db.select({ id: users.id, role: users.role, departmentId: users.departmentId, fullName: users.fullName, loginId: users.loginId, isDemo: users.isDemo, active: users.active, passwordChangedAt: users.passwordChangedAt, sessionVersion: users.sessionVersion })
       .from(users).where(eq(users.id, String(payload.sub))).limit(1);
     if (!row || !row.active) return fail(res, 401, 'This account is no longer active', 'ACCOUNT_DISABLED');
     if (row.passwordChangedAt && (payload.iat ?? 0) * 1000 < row.passwordChangedAt.getTime() - 1000) return fail(res, 401, 'Your password changed. Please sign in again.', 'INVALID_TOKEN');
+    // Sign-out / revoke-all / password change increments the counter, which invalidates every
+    // previously issued token for this account (exact, no clock-granularity races).
+    const tokenVersion = typeof payload.sessionVersion === 'number' ? payload.sessionVersion : 0;
+    if (tokenVersion !== row.sessionVersion) return fail(res, 401, 'Your session was signed out. Please sign in again.', 'INVALID_TOKEN');
     req.user = { id: row.id, role: row.role as UserRole, departmentId: row.departmentId ?? null, fullName: row.fullName, loginId: row.loginId, isDemo: row.isDemo };
     next();
   } catch (error) { next(error); }

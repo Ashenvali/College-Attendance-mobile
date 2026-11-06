@@ -9,7 +9,7 @@
     "apps/mobile"
   ],
   "scripts": {
-    "dev": "concurrently -k -n API,WEB -c blue,green \"npm:dev:api\" \"npm:dev:web\"",
+    "dev": "npm run mobile:export && concurrently -k -n API,WEB -c blue,green \"npm:dev:api\" \"npm:dev:web\"",
     "dev:api": "PORT=3001 tsx watch apps/api/src/server.ts",
     "dev:web": "vite apps/web --config apps/web/vite.config.ts --host 0.0.0.0",
     "build": "npm run build --workspace @bitsknl/api && npm run build --workspace @bitsknl/web",
@@ -18,9 +18,14 @@
     "db:setup": "npm run db:migrate && npm run db:seed",
     "typecheck": "npm run typecheck --workspace @bitsknl/api && npm run typecheck --workspace @bitsknl/web",
     "mobile:typecheck": "npm --prefix apps/mobile run typecheck",
-    "test:smoke": "node scripts/smoke-test.mjs && node scripts/module-smoke-test.mjs",
+    "test:smoke": "node scripts/smoke-test.mjs && node scripts/module-smoke-test.mjs && node scripts/permission-smoke-test.mjs && node scripts/api-parity-check.mjs",
     "test": "tsx --test apps/api/tests/*.test.ts",
-    "db:disable-demo": "tsx apps/api/src/db/disable-demo.ts"
+    "db:disable-demo": "tsx apps/api/src/db/disable-demo.ts",
+    "mobile:export": "node scripts/mobile-export.mjs",
+    "mobile:export:android": "npm --prefix apps/mobile exec -- expo export --platform android --output-dir dist-android",
+    "build:mobile": "npm run mobile:export && npm run build",
+    "test:permissions": "node scripts/permission-smoke-test.mjs",
+    "test:parity": "node scripts/api-parity-check.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.1.0",
