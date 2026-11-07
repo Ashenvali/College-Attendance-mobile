@@ -40,7 +40,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         if (mounted) { setUser(result.user); setProfile(result.profile); }
       } catch {
         setToken(null);
-        await sessionStore.removeItem(TOKEN_KEY);
+        try { await sessionStore.removeItem(TOKEN_KEY); } catch { /* nothing persisted to remove */ }
       } finally {
         if (mounted) setLoading(false);
       }
@@ -53,7 +53,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
       method: 'POST', body: JSON.stringify({ identifier: identifier.trim(), password }),
     });
     setToken(result.token);
-    await sessionStore.setItem(TOKEN_KEY, result.token);
+    // The browser build can refuse storage (blocked cookies/third-party storage in an embedded
+    // preview). The token is already in memory, so sign-in must still succeed; it just will not
+    // survive a page reload.
+    try { await sessionStore.setItem(TOKEN_KEY, result.token); } catch { /* in-memory session only */ }
     setUser(result.user);
     setProfile(null);
   }, []);
@@ -62,7 +65,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     // The API revokes the token server-side; local sign-out always succeeds.
     try { if (user) await request('/auth/logout', { method: 'POST' }); } catch { /* local sign-out always succeeds */ }
     setToken(null);
-    await sessionStore.removeItem(TOKEN_KEY);
+    try { await sessionStore.removeItem(TOKEN_KEY); } catch { /* nothing persisted to remove */ }
     setUser(null);
     setProfile(null);
   }, [user]);
@@ -70,13 +73,13 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
     const result = await request<{ token: string }>('/auth/change-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) });
     setToken(result.token);
-    await sessionStore.setItem(TOKEN_KEY, result.token);
+    try { await sessionStore.setItem(TOKEN_KEY, result.token); } catch { /* in-memory session only */ }
   }, []);
 
   const revokeSessions = useCallback(async () => {
     await request('/auth/revoke-sessions', { method: 'POST' });
     setToken(null);
-    await sessionStore.removeItem(TOKEN_KEY);
+    try { await sessionStore.removeItem(TOKEN_KEY); } catch { /* nothing persisted to remove */ }
     setUser(null);
     setProfile(null);
   }, []);

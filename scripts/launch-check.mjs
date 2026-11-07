@@ -172,9 +172,17 @@ check('R04', 'LOW', 'Every client URL has a matching API route', () => {
 /* ----------------------------------------------------------- live probes (optional) */
 
 if (LIVE) {
+  // A single dropped connection must not fail the gate: retry once after a short pause.
   const call = async (path, init = {}) => {
-    const response = await fetch(`${API}${path}`, { ...init, headers: { 'content-type': 'application/json', ...(init.headers ?? {}) } });
-    return { status: response.status, body: await response.json().catch(() => ({})) };
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        const response = await fetch(`${API}${path}`, { ...init, headers: { 'content-type': 'application/json', ...(init.headers ?? {}) }, signal: AbortSignal.timeout(15000) });
+        return { status: response.status, body: await response.json().catch(() => ({})) };
+      } catch (error) {
+        if (attempt >= 2) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 750));
+      }
+    }
   };
   const live = async (id, level, name, run) => {
     try {
@@ -185,8 +193,7 @@ if (LIVE) {
     }
   };
   await live('L01', 'BLOCKER', 'Live API /health reports a connected database', async () => {
-    const response = await fetch(`${API.replace(/\/api$/, '')}/health`);
-    const body = await response.json();
+    const body = (await call('/../health')).body;
     if (body.database !== 'connected') throw new Error(`database: ${body.database}`);
     return 'connected';
   });
@@ -196,6 +203,11 @@ if (LIVE) {
     const login = await call('/auth/login', { method: 'POST', body: JSON.stringify({ identifier: 'hod@demo.bits', password: 'Hod@123' }) });
     if (login.status !== 403) throw new Error(`demo login returned ${login.status}, expected 403`);
     return '403 DEMO_DISABLED';
+  });
+  await live('L02b', 'BLOCKER', 'Portal sign-in reaches the dashboard in a real DOM', async () => {
+    execSync('node scripts/browser-signin-probe.mjs', { stdio: 'pipe', timeout: 120000 });
+    execSync('node scripts/browser-signin-probe.mjs --block-storage', { stdio: 'pipe', timeout: 120000 });
+    return 'normal + storage-blocked sessions';
   });
   await live('L03', 'HIGH', 'Wrong password rejected with 401', async () => {
     const login = await call('/auth/login', { method: 'POST', body: JSON.stringify({ identifier: 'nobody@bits.bits', password: 'wrong-password' }) });

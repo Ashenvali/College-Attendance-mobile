@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Download, FileSpreadsheet, KeyRound, LogOut, RefreshCw, ShieldCheck } from 'lucide-react';
 import { api } from '../lib/api';
+import { sessionStore } from '../lib/session';
 import type { SessionUser } from '../types';
 
 interface Report {
@@ -92,7 +93,7 @@ export function SecurityPage({ user }: { user: SessionUser }) {
     setBusy(true);
     try {
       const result = await api<{ token: string }>('/auth/change-password', { method: 'POST', body: JSON.stringify({ currentPassword: current, newPassword: next }) });
-      sessionStorage.setItem('bits-token', result.token);
+      sessionStore.set(result.token);
       setCurrent(''); setNext(''); setConfirm('');
       setDone('Password changed. Other sessions were signed out.');
     } catch (err) { setError(err instanceof Error ? err.message : 'Could not change the password'); }
@@ -103,7 +104,7 @@ export function SecurityPage({ user }: { user: SessionUser }) {
     setError(''); setDone(''); setBusy(true);
     try {
       await api('/auth/revoke-sessions', { method: 'POST' });
-      sessionStorage.removeItem('bits-token');
+      sessionStore.clear();
       setDone('All sessions were signed out. Reload the page and sign in again.');
     } catch (err) { setError(err instanceof Error ? err.message : 'Could not revoke sessions'); }
     finally { setBusy(false); }
@@ -124,7 +125,7 @@ export function SecurityPage({ user }: { user: SessionUser }) {
       <div className="panel">
         <div className="panel-heading"><div><h3>Session control</h3><p>Bearer tokens expire after the configured lifetime (8h by default).</p></div><ShieldCheck size={17}/></div>
         <p className="modal-copy">If a device was lost or a password may have been shared, sign out every session. You will need to sign in again.</p>
-        <div className="modal-actions"><button type="button" className="button button-soft" onClick={() => void revokeSessions()} disabled={busy}><RefreshCw size={15}/>Sign out all sessions</button><button type="button" className="button button-soft" onClick={() => { sessionStorage.removeItem('bits-token'); window.location.reload(); }}><LogOut size={15}/>Sign out</button></div>
+        <div className="modal-actions"><button type="button" className="button button-soft" onClick={() => void revokeSessions()} disabled={busy}><RefreshCw size={15}/>Sign out all sessions</button><button type="button" className="button button-soft" onClick={() => { sessionStore.clear(); window.location.reload(); }}><LogOut size={15}/>Sign out</button></div>
       </div>
     </div>
   </section>;

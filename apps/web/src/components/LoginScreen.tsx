@@ -3,6 +3,7 @@ import { ArrowRight, Eye, EyeOff, LockKeyhole, ShieldCheck } from 'lucide-react'
 import { Brand } from './Brand';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../lib/api';
+import { sessionStore } from '../lib/session';
 
 const demos = [
   { role: 'Student', id: 'student@demo.bits', password: 'Student@123', initials: 'ST', tone: 'blue' },
@@ -22,6 +23,9 @@ export function LoginScreen() {
   const [show, setShow] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  // Shown when the browser refuses session storage (embedded preview / privacy mode): the session
+  // still works, it just will not survive a reload. Without this the reload silently signs you out.
+  const [tabOnlySession, setTabOnlySession] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -42,6 +46,7 @@ export function LoginScreen() {
     setBusy(true);
     try {
       await login(identifier, password);
+      if (!sessionStore.isPersistent) setTabOnlySession(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sign in failed');
     } finally {
@@ -95,6 +100,7 @@ export function LoginScreen() {
               <button type="button" onClick={() => setError('Password recovery is not available yet. Contact the college system administrator to reset your password.')}>Forgot password?</button>
             </div>
             {error && <div className="inline-error">{error}</div>}
+            {tabOnlySession && <div className="login-helper"><span>This browser is blocking site storage, so your session lasts for this tab only.</span></div>}
             <button className="button button-primary login-submit" disabled={busy}>
               {busy ? 'Signing in…' : 'Sign in to BITS Kurnool'}
               <ArrowRight size={16} />

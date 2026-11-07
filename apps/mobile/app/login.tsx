@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Image, KeyboardAvoidingView, Linking, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { AppButton } from '../src/components/AppButton';
 import { FormField } from '../src/components/FormField';
 import { ErrorState } from '../src/components/Feedback';
 import { useAuth } from '../src/context/AuthContext';
-import { request } from '../src/services/api';
+import { ApiError } from '../src/services/api';
 import { palette } from '../src/theme';
 
 
@@ -16,6 +16,10 @@ export default function LoginScreen() {
   const { signIn } = useAuth(); const router = useRouter();
   const [identifier, setIdentifier] = useState(''); const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false); const [busy, setBusy] = useState(false); const [error, setError] = useState('');
+  // Where to go after a successful sign-in. Deep links into the app (e.g. a shared /attendance URL)
+  // arrive as a redirect parameter; anything unrecognised falls back to the dashboard.
+  const params = useLocalSearchParams<{ redirect?: string }>();
+  const destination = typeof params.redirect === 'string' && /^\(app\)\/[a-z-]+$/.test(params.redirect) ? `/${params.redirect}` : '/(app)/dashboard';
   // Password recovery is handled by the college administrator; the link opens a pre-filled mail
   // draft so a locked-out student is not left with a dead "contact the administrator" sentence.
   const requestHelp = useCallback(() => {
@@ -27,8 +31,20 @@ export default function LoginScreen() {
   async function submit() {
     if (!identifier.trim() || !password) { setError('Enter your User ID / Roll Number and password.'); return; }
     setBusy(true); setError('');
-    try { await signIn(identifier, password); router.replace('/(app)/dashboard' as never); }
-    catch (e) { setError(e instanceof Error ? e.message : 'Sign-in failed. Please try again.'); }
+    try {
+      await signIn(identifier, password);
+      router.replace(destination as never);
+    } catch (e) {
+      // Explain why nothing happened instead of leaving the button idle: bad credentials, disabled
+      // demo accounts, an unreachable API and a timeout each get their own sentence.
+      const message = e instanceof ApiError
+        ? e.status === 0 ? e.message
+          : e.code === 'DEMO_DISABLED' ? 'Demo sign-in is disabled on this deployment. Use your college account.'
+            : e.status === 401 ? 'User ID or password is incorrect.'
+              : `${e.message} (${e.status})`
+        : e instanceof Error ? e.message : 'Sign-in failed. Please try again.';
+      setError(message);
+    }
     finally { setBusy(false); }
   }
   return <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}><ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">

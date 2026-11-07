@@ -22,6 +22,8 @@ export default function AuthenticatedTabs() {
     <Tabs.Screen name="notifications" options={{ title: 'Alerts', tabBarIcon: icon('notifications-outline') }}/>
     <Tabs.Screen name="profile" options={{ title: 'Profile', tabBarIcon: icon('person-circle-outline') }}/>
     <Tabs.Screen name="manage" options={{ href: null }}/>
-    <Tabs.Screen name="module" options={{ href: null }}/>
+    {/* Named `data-module`, not `module`: a route called "module" collides with a module tab that is
+        opened as `/module/<resource>`, which is the same URL shape Expo Router uses for nested routes. */}
+    <Tabs.Screen name="data-module" options={{ href: null }}/>
   </Tabs>;
 }
