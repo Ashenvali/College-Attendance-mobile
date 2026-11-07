@@ -1,9 +1,44 @@
 {
-  "cli": { "version": ">= 16.0.0", "appVersionSource": "remote" },
-  "build": {
-    "development": { "developmentClient": true, "distribution": "internal", "android": { "buildType": "apk" }, "env": { "EXPO_PUBLIC_API_URL": "http://REPLACE-WITH-LAN-IP:3001/api" } },
-    "preview": { "distribution": "internal", "android": { "buildType": "apk" }, "env": { "EXPO_PUBLIC_API_URL": "https://REPLACE-WITH-STAGING-API-HOST/api" } },
-    "production": { "autoIncrement": true, "android": { "buildType": "app-bundle" }, "env": { "EXPO_PUBLIC_API_URL": "https://REPLACE-WITH-PRODUCTION-API-HOST/api" } }
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "remote"
   },
-  "submit": { "production": { "android": { "track": "internal" } } }
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "http://REPLACE-WITH-LAN-IP:3001/api"
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://REPLACE-WITH-STAGING-API-HOST/api"
+      }
+    },
+    "production": {
+      "autoIncrement": true,
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://REPLACE-WITH-PRODUCTION-API-HOST/api",
+        "DEMO_MODE": "false"
+      }
+    }
+  },
+  "submit": {
+    "production": {
+      "android": {
+        "track": "internal"
+      }
+    }
+  }
 }

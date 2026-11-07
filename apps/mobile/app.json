@@ -34,7 +34,9 @@
       "allowBackup": false
     },
     "web": {
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/favicon.png",
+      "bundler": "metro",
+      "output": "static"
     },
     "plugins": [
       "expo-router",
@@ -42,7 +44,8 @@
       "@react-native-community/datetimepicker"
     ],
     "experiments": {
-      "typedRoutes": true
+      "typedRoutes": true,
+      "baseUrl": "/mobile"
     }
   }
 }
