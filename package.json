@@ -18,7 +18,7 @@
     "db:setup": "npm run db:migrate && npm run db:seed",
     "typecheck": "npm run typecheck --workspace @bitsknl/api && npm run typecheck --workspace @bitsknl/web",
     "mobile:typecheck": "npm --prefix apps/mobile run typecheck",
-    "test:smoke": "node scripts/smoke-test.mjs && node scripts/module-smoke-test.mjs && node scripts/permission-smoke-test.mjs && node scripts/api-parity-check.mjs",
+    "test:smoke": "node scripts/smoke-test.mjs && node scripts/module-smoke-test.mjs && node scripts/permission-smoke-test.mjs && node scripts/api-parity-check.mjs && (npm run db:purge-test-data -- --apply >/dev/null 2>&1 || true)",
     "test": "tsx --test apps/api/tests/*.test.ts",
     "db:disable-demo": "tsx apps/api/src/db/disable-demo.ts",
     "mobile:export": "node scripts/mobile-export.mjs",
@@ -29,7 +29,8 @@
     "launch:check": "node scripts/launch-check.mjs",
     "launch:check:live": "node scripts/launch-check.mjs --live",
     "import:students": "node scripts/import-students.mjs",
-    "test:signin": "node scripts/browser-signin-probe.mjs"
+    "test:signin": "node scripts/browser-signin-probe.mjs",
+    "db:purge-test-data": "tsx scripts/purge-test-data.ts"
   },
   "devDependencies": {
     "concurrently": "^9.1.0",

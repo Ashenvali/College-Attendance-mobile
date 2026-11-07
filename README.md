@@ -173,6 +173,19 @@ Full initial contract: `docs/openapi.json`.
 - The verified Supabase integration tests intentionally leave clearly fictional demo attendance, marks, a timestamped notice and mock SMS campaign records in the selected project; no external SMS was transmitted.
 
 
+## Development data hygiene
+
+```bash
+npm run db:purge-test-data            # dry run: what automated-test residue would be removed
+npm run db:purge-test-data -- --apply # remove it inside one transaction
+```
+
+The smoke, module and permission suites write throwaway accounts (`stua…`, `fac…`, `oth…`), demo
+announcements, mock SMS campaigns and "Results published" notifications into the development database.
+`npm run test:smoke` now runs this cleanup automatically at the end, and the command is also safe to
+run by hand. Only generated test data is removed — the seeded `@demo.bits` demonstration accounts and
+their academic records are never touched.
+
 ## Pre-launch gate
 
 ```bash
