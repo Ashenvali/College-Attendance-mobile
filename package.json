@@ -25,7 +25,10 @@
     "mobile:export:android": "npm --prefix apps/mobile exec -- expo export --platform android --output-dir dist-android",
     "build:mobile": "npm run mobile:export && npm run build",
     "test:permissions": "node scripts/permission-smoke-test.mjs",
-    "test:parity": "node scripts/api-parity-check.mjs"
+    "test:parity": "node scripts/api-parity-check.mjs",
+    "launch:check": "node scripts/launch-check.mjs",
+    "launch:check:live": "node scripts/launch-check.mjs --live",
+    "import:students": "node scripts/import-students.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.1.0",

@@ -159,6 +159,7 @@ API responses use `{ "success": true, "data": ... }` or `{ "success": false, "me
 - `GET /api/sms/dashboard` (delivery log with masked numbers)
 - `GET /api/admin/reports/attendance?from=YYYY-MM-DD&to=YYYY-MM-DD` (reporting; CSV in the portal)
 - `GET/PATCH /api/admin/students/:id/contact` (masked parent-contact maintenance)
+- `GET /api/auth/config` (public: whether fictional demo sign-in is enabled on this deployment)
 
 Full initial contract: `docs/openapi.json`.
 
@@ -171,6 +172,17 @@ Full initial contract: `docs/openapi.json`.
 - Hosting uses managed on-demand (Autoscale) service: the published HTTPS URL is stable, but an idle container may sleep and take time to cold-start. Supabase documents that Free projects with low database activity may be paused after seven days; restore the project in Supabase if that happens. No paid-plan upgrade or billing change was made.
 - The verified Supabase integration tests intentionally leave clearly fictional demo attendance, marks, a timestamped notice and mock SMS campaign records in the selected project; no external SMS was transmitted.
 
+
+## Pre-launch gate
+
+```bash
+npm run launch:check        # 29 automated launch checks (types, tests, build, security, Play artefacts)
+npm run launch:check:live   # + live API probes; API_BASE_URL overrides http://localhost:3001/api
+```
+
+Exit code is non-zero while a BLOCKER/HIGH item fails, so the same command can gate CI. It also prints
+the owner-side items that cannot be automated (Play Console, DLT sender ID, device testing) as
+`MANUAL`, never as a pass. Itemised results: `docs/LAUNCH-CHECKLIST-2026-11-07.md`.
 
 ## Audit (6 November 2026)
 

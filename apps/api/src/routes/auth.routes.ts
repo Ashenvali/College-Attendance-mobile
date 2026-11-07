@@ -20,6 +20,23 @@ const signSession = (user: { id: string; role: string; departmentId: string | nu
 };
 
 export const authRouter = Router();
+
+/**
+ * Demo mode. Fictional `@demo.bits` accounts exist for evaluation; showing their shared password on
+ * the sign-in screen is only acceptable while the deployment is explicitly a demo.
+ * `DEMO_MODE=auto` (default) enables it outside production and requires it to be stated explicitly
+ * in production, so a real deployment never advertises working demo logins by accident.
+ */
+export const isDemoMode = (): boolean => {
+  const flag = (process.env.DEMO_MODE ?? 'auto').trim().toLowerCase();
+  if (['1', 'true', 'on', 'yes'].includes(flag)) return true;
+  if (['0', 'false', 'off', 'no'].includes(flag)) return false;
+  return process.env.NODE_ENV !== 'production';
+};
+
+/** Public, unauthenticated bootstrap data the sign-in screen needs. No secrets. */
+authRouter.get('/config', (_req, res) => ok(res, { demoMode: isDemoMode() }));
+
 const loginSchema = z.object({ identifier: z.string().min(1).max(180), password: z.string().min(1).max(128) });
 
 authRouter.post('/login', async (req, res, next) => {
@@ -29,6 +46,9 @@ authRouter.post('/login', async (req, res, next) => {
     const identifier = parsed.data.identifier.trim();
     const [user] = await db.select().from(users).where(or(eq(users.loginId, identifier), eq(users.email, identifier.toLowerCase()))).limit(1);
     if (!user || !user.active || !(await bcrypt.compare(parsed.data.password, user.passwordHash))) return fail(res, 401, 'User ID or password is incorrect', 'INVALID_CREDENTIALS');
+    // Demo accounts are deactivated (not deleted) for launch; refuse them outright when demo mode is off
+    // so a forgotten seed can never become a production back door.
+    if (user.isDemo && !isDemoMode()) return fail(res, 403, 'Demo accounts are disabled on this deployment', 'DEMO_DISABLED');
     const token = signSession(user);
     await db.update(users).set({ lastLoginAt: new Date(), updatedAt: new Date() }).where(eq(users.id, user.id));
     await writeAudit({ actorId: user.id, action: 'LOGIN', module: 'AUTH', ip: req.ip });
