@@ -5,7 +5,7 @@
  * change where supported by the deployment. Nothing here touches demo rows.
  *
  *   node scripts/import-students.mjs students.csv --dry-run
- *   node scripts/import-students.mjs students.csv --apply
+ *   node scripts/import-students.mjs students.csv --apply --credentials-file=./student-credentials.csv
  *
  * CSV columns (header row required, order free):
  *   rollNumber,fullName,email,sectionName,year,departmentCode,parentName,parentPhone,parentSmsConsent
@@ -14,7 +14,8 @@
  * audit logging and password hashing as the portal. Credentials are read from the environment:
  *   API_BASE_URL (default http://localhost:3001/api), IMPORT_ADMIN_ID, IMPORT_ADMIN_PASSWORD
  */
-import { readFileSync } from 'node:fs';
+import { openSync, readFileSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 
 const API = (process.env.API_BASE_URL || 'http://localhost:3001/api').replace(/\/$/, '');
 const identifier = process.env.IMPORT_ADMIN_ID;
@@ -23,6 +24,12 @@ const password = process.env.IMPORT_ADMIN_PASSWORD;
 const [file, ...flags] = process.argv.slice(2);
 if (!file) { console.error('Usage: node scripts/import-students.mjs <students.csv> [--apply]'); process.exit(2); }
 const apply = flags.includes('--apply');
+const credentialsFlag = flags.find((flag) => flag.startsWith('--credentials-file='));
+const credentialsPath = credentialsFlag?.slice('--credentials-file='.length);
+if (apply && !credentialsPath) {
+  console.error('For --apply, provide --credentials-file=<new-private-file> to save the random initial passwords securely.');
+  process.exit(2);
+}
 if (!identifier || !password) { console.error('Set IMPORT_ADMIN_ID and IMPORT_ADMIN_PASSWORD (an Admin account) first.'); process.exit(2); }
 
 /** RFC-4180-ish parser: handles quoted fields, embedded commas and escaped quotes. */
@@ -76,6 +83,19 @@ const [departments, sections, courses] = await Promise.all([
 ]);
 
 let created = 0; const failures = [];
+// Reserve a new file exclusively before creating accounts, so we never overwrite an existing file
+// or lose the generated credentials to stdout/logging. POSIX systems enforce mode 0600.
+let credentialsFd;
+if (apply) {
+  try {
+    credentialsFd = openSync(credentialsPath, 'wx', 0o600);
+    writeFileSync(credentialsFd, 'loginId,password\\n');
+  } catch (error) {
+    console.error(`Could not create credentials file: ${error.message}`);
+    process.exit(2);
+  }
+}
+const csvCell = (value) => `"${String(value).replaceAll('"', '""')}"`;
 for (const record of records) {
   const department = departments.find((d) => d.code?.toUpperCase() === record.departmentCode.toUpperCase());
   // /modules/sections returns { id, year, section, department (code), course } — match on the payload we receive.
@@ -84,7 +104,7 @@ for (const record of records) {
     && (s.departmentId === department?.id || s.department?.toUpperCase() === record.departmentCode.toUpperCase()));
   if (!department || !section) { failures.push(`${record.rollNumber}: no matching section ${record.departmentCode}/${record.year}/${record.sectionName}`); continue; }
   const course = courses.find((c) => c.departmentId === department.id || c.departmentId === department?.id);
-  const initialPassword = `Bits@${record.rollNumber.slice(-4)}${new Date().getFullYear() % 100}`;
+  const initialPassword = randomBytes(24).toString('base64url');
   const payload = {
     loginId: record.rollNumber, email: record.email, password: initialPassword, fullName: record.fullName,
     rollNumber: record.rollNumber, departmentId: department.id, courseId: course?.id, sectionId: section.id,
@@ -94,7 +114,8 @@ for (const record of records) {
   if (!apply) { console.log(`[dry-run] would create ${record.rollNumber} (${record.fullName})`); created += 1; continue; }
   try {
     await call('/admin/students', { method: 'POST', body: JSON.stringify(payload) }, token);
-    console.log(`created ${record.rollNumber} → initial password ${initialPassword}`);
+    writeFileSync(credentialsFd, `${csvCell(record.rollNumber)},${csvCell(initialPassword)}\\n`);
+    console.log(`created ${record.rollNumber}`);
     created += 1;
   } catch (error) {
     failures.push(`${record.rollNumber}: ${error.message}`);
