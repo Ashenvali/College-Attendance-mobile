@@ -1,14 +1,22 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
+// Preview hosts must be explicitly listed as a comma-separated VITE_ALLOWED_HOSTS environment
+// variable when they differ from Vite's safe localhost/IP defaults. Do not disable host validation.
+const allowedHosts = (process.env.VITE_ALLOWED_HOSTS || '').split(',').map((host) => host.trim()).filter(Boolean);
+
 export default defineConfig({
   plugins: [react()],
   server: {
     host: '0.0.0.0',
-    allowedHosts: ['8328-iz6rax8o841j3lcx9blqy-b5125bd2.sg2.manus.computer', '5173-iz6rax8o841j3lcx9blqy-b5125bd2.sg2.manus.computer'],
+    ...(allowedHosts.length ? { allowedHosts } : {}),
     port: 3000,
     strictPort: true,
-    proxy: { '/api': { target: 'http://127.0.0.1:3001', changeOrigin: true } },
+    proxy: {
+      '/api': { target: process.env.API_PROXY_TARGET || 'http://127.0.0.1:3001', changeOrigin: true },
+      '/health': { target: process.env.API_PROXY_TARGET || 'http://127.0.0.1:3001', changeOrigin: true },
+      '/mobile': { target: process.env.API_PROXY_TARGET || 'http://127.0.0.1:3001', changeOrigin: true },
+    },
   },
   build: { outDir: 'dist', emptyOutDir: true },
 });

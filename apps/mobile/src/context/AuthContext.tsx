@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type PropsWithChildren } from 'react';
-import * as SecureStore from 'expo-secure-store';
 import { request, setToken } from '../services/api';
+import { sessionStore, usesSecureKeychain } from '../services/storage';
 
 export type UserRole = 'STUDENT' | 'FACULTY' | 'HOD' | 'PRINCIPAL' | 'ADMIN' | 'SUPER_ADMIN';
 export type MobileUser = { id: string; loginId: string; email?: string; fullName: string; role: UserRole; departmentId: string | null; isDemo: boolean };
@@ -8,10 +8,12 @@ type AuthContextValue = {
   user: MobileUser | null;
   profile: Record<string, unknown> | null;
   loading: boolean;
+  secureStorage: boolean;
   signIn: (identifier: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
+  revokeSessions: () => Promise<void>;
 };
 const TOKEN_KEY = 'bitsknl.session.jwt';
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -31,14 +33,14 @@ export function AuthProvider({ children }: PropsWithChildren) {
     let mounted = true;
     (async () => {
       try {
-        const saved = await SecureStore.getItemAsync(TOKEN_KEY);
+        const saved = await sessionStore.getItem(TOKEN_KEY);
         if (!saved) return;
         setToken(saved);
         const result = await request<{ user: MobileUser; profile: Record<string, unknown> }>('/auth/me');
         if (mounted) { setUser(result.user); setProfile(result.profile); }
       } catch {
         setToken(null);
-        await SecureStore.deleteItemAsync(TOKEN_KEY).catch(() => undefined);
+        try { await sessionStore.removeItem(TOKEN_KEY); } catch { /* nothing persisted to remove */ }
       } finally {
         if (mounted) setLoading(false);
       }
@@ -51,15 +53,19 @@ export function AuthProvider({ children }: PropsWithChildren) {
       method: 'POST', body: JSON.stringify({ identifier: identifier.trim(), password }),
     });
     setToken(result.token);
-    await SecureStore.setItemAsync(TOKEN_KEY, result.token, { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK });
+    // The browser build can refuse storage (blocked cookies/third-party storage in an embedded
+    // preview). The token is already in memory, so sign-in must still succeed; it just will not
+    // survive a page reload.
+    try { await sessionStore.setItem(TOKEN_KEY, result.token); } catch { /* in-memory session only */ }
     setUser(result.user);
     setProfile(null);
   }, []);
 
   const signOut = useCallback(async () => {
+    // The API revokes the token server-side; local sign-out always succeeds.
     try { if (user) await request('/auth/logout', { method: 'POST' }); } catch { /* local sign-out always succeeds */ }
     setToken(null);
-    await SecureStore.deleteItemAsync(TOKEN_KEY).catch(() => undefined);
+    try { await sessionStore.removeItem(TOKEN_KEY); } catch { /* nothing persisted to remove */ }
     setUser(null);
     setProfile(null);
   }, [user]);
@@ -67,10 +73,18 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
     const result = await request<{ token: string }>('/auth/change-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) });
     setToken(result.token);
-    await SecureStore.setItemAsync(TOKEN_KEY, result.token, { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK });
+    try { await sessionStore.setItem(TOKEN_KEY, result.token); } catch { /* in-memory session only */ }
   }, []);
 
-  const value = useMemo(() => ({ user, profile, loading, signIn, signOut, refreshProfile, changePassword }), [user, profile, loading, signIn, signOut, refreshProfile, changePassword]);
+  const revokeSessions = useCallback(async () => {
+    await request('/auth/revoke-sessions', { method: 'POST' });
+    setToken(null);
+    try { await sessionStore.removeItem(TOKEN_KEY); } catch { /* nothing persisted to remove */ }
+    setUser(null);
+    setProfile(null);
+  }, []);
+
+  const value = useMemo(() => ({ user, profile, loading, secureStorage: usesSecureKeychain, signIn, signOut, refreshProfile, changePassword, revokeSessions }), [user, profile, loading, signIn, signOut, refreshProfile, changePassword, revokeSessions]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

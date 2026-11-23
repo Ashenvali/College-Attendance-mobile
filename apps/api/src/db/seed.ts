@@ -6,6 +6,9 @@ import { academicYears, assignments, attendanceRecords, attendanceSessions, cour
 
 async function main() {
   if (process.env.ALLOW_DEMO_SEED !== 'true') throw new Error('Refusing to seed demo data. Set ALLOW_DEMO_SEED=true (development databases only; never the production database).');
+  if (process.env.NODE_ENV === 'production' && process.env.ALLOW_DEMO_SEED === 'true' && !['1', 'true', 'on', 'yes'].includes((process.env.DEMO_MODE ?? '').toLowerCase())) {
+    throw new Error('Refusing to seed fictional accounts into a production database unless DEMO_MODE=true makes the deployment an explicit demo.');
+  }
   const deptData = [
     ['CSE','Computer Science & Engineering'], ['ECE','Electronics & Communication Engineering'], ['CE','Civil Engineering'],
     ['ME','Mechanical Engineering'], ['EEE','Electrical & Electronics Engineering'], ['HS','Humanities & Science'],

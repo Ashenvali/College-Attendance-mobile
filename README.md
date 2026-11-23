@@ -65,7 +65,7 @@ npm run dev
 - Health check: `http://localhost:3001/health`
 - OpenAPI: `http://localhost:3001/api/openapi.json`
 
-The API and Vite dev server run together. Vite proxies `/api` to the local Express service. `npm run build` creates the web build and API TypeScript build; `npm run typecheck` checks the API and web, and `npm run mobile:typecheck` checks the Expo client. `npm run test:smoke` runs end-to-end API workflows and writes fictional development records (attendance, result, notice, and mock campaign) to PostgreSQL. The managed website builds the same API and portal into a container; Express serves `apps/web/dist` on the platform-provided `PORT` (3000 by default).
+The API and Vite dev server run together. Vite proxies `/api` to the local Express service. `npm run build` creates the web build and API TypeScript build; `npm run typecheck` checks the API and web, and `npm run mobile:typecheck` checks the Expo client. `npm test` runs the database-free unit tests plus the absent-SMS integration test (active whenever `TEST_DATABASE_URL` points at a disposable database). ``npm run test:signin` drives the real portal in a headless DOM — it types credentials, clicks Sign in and asserts the dashboard replaced the login form (add `--block-storage` to simulate a sandboxed preview). `npm run test:smoke` runs the end-to-end API suites — attendance save → student read → alert → analytics, the module workflow (marks review/publication, notice fan-out, mock SMS) and the 28-check role-permission matrix — and writes fictional development records to PostgreSQL. The managed website builds the same API and portal into a container; Express serves `apps/web/dist` on the platform-provided `PORT` (3000 by default).
 
 ## Environment variables
 
@@ -125,13 +125,24 @@ cp .env.example .env
 npx expo start
 ```
 
-Use the development machine's LAN IP from a physical phone (not `localhost`). For browser-based testing, the responsive web portal already adapts to mobile widths. Android/iOS store signing and EAS configuration are not included.
+Use the development machine's LAN IP from a physical phone (not `localhost`).
+
+**Browser build (evaluation, screenshots, UAT):** the same Expo Router app also compiles for the web with `react-native-web`. From the repository root:
+
+```bash
+npm run mobile:export   # exports apps/mobile/dist with EXPO_PUBLIC_API_URL=/api
+npm run dev             # exports, then serves the portal and the API together
+```
+
+Open `/mobile/` on the dev server or the deployed container. Platform-split modules keep native behaviour intact: `src/services/storage.ts` (expo-secure-store) vs `storage.web.ts` (localStorage), and `AbsenceDatePicker.tsx` (native picker) vs `AbsenceDatePicker.web.tsx` (`<input type="date">`). The browser build keeps its session token in `localStorage` because a browser has no keychain; Android/iOS builds use the keychain. Re-run `npm run mobile:export` after changing mobile source.
+
+Android/iOS store signing needs EAS: set the production API host in `apps/mobile/eas.json` (currently `REPLACE-WITH-PRODUCTION-API-HOST`) and follow `docs/PLAY_STORE_CHECKLIST.md`.
 
 ## REST API
 
 API responses use `{ "success": true, "data": ... }` or `{ "success": false, "message": ... }`.
 
-- `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`
+- `POST /api/auth/login`, `POST /api/auth/logout` (revokes the token server-side), `POST /api/auth/revoke-sessions`, `GET /api/auth/me`, `POST /api/auth/change-password`
 - `GET /api/dashboard`
 - `GET /api/attendance/register/classes`
 - `GET /api/attendance/register?subjectId=<uuid>&sectionId=<uuid>&date=YYYY-MM-DD`
@@ -143,6 +154,12 @@ API responses use `{ "success": true, "data": ... }` or `{ "success": false, "me
 - `GET/POST/PATCH /api/marks` for faculty marks, HOD review, and authorized result publication
 - `POST /api/admin/students|faculty|departments|subjects|examinations|fees`
 - `GET/POST /api/sms/campaigns`, `POST /api/sms/campaigns/:id/send`
+- `GET /api/sms/parents/scopes|preview|campaigns` (Faculty/HOD parent messaging)
+- `GET /api/sms/absent/:sessionId/preview|status`, `POST .../send|retry` (absent-student parent SMS)
+- `GET /api/sms/dashboard` (delivery log with masked numbers)
+- `GET /api/admin/reports/attendance?from=YYYY-MM-DD&to=YYYY-MM-DD` (reporting; CSV in the portal)
+- `GET/PATCH /api/admin/students/:id/contact` (masked parent-contact maintenance)
+- `GET /api/auth/config` (public: whether fictional demo sign-in is enabled on this deployment)
 
 Full initial contract: `docs/openapi.json`.
 
@@ -155,6 +172,34 @@ Full initial contract: `docs/openapi.json`.
 - Hosting uses managed on-demand (Autoscale) service: the published HTTPS URL is stable, but an idle container may sleep and take time to cold-start. Supabase documents that Free projects with low database activity may be paused after seven days; restore the project in Supabase if that happens. No paid-plan upgrade or billing change was made.
 - The verified Supabase integration tests intentionally leave clearly fictional demo attendance, marks, a timestamped notice and mock SMS campaign records in the selected project; no external SMS was transmitted.
 
+
+## Development data hygiene
+
+```bash
+npm run db:purge-test-data            # dry run: what automated-test residue would be removed
+npm run db:purge-test-data -- --apply # remove it inside one transaction
+```
+
+The smoke, module and permission suites write throwaway accounts (`stua…`, `fac…`, `oth…`), demo
+announcements, mock SMS campaigns and "Results published" notifications into the development database.
+`npm run test:smoke` now runs this cleanup automatically at the end, and the command is also safe to
+run by hand. Only generated test data is removed — the seeded `@demo.bits` demonstration accounts and
+their academic records are never touched.
+
+## Pre-launch gate
+
+```bash
+npm run launch:check        # 29 automated launch checks (types, tests, build, security, Play artefacts)
+npm run launch:check:live   # + live API probes; API_BASE_URL overrides http://localhost:3001/api
+```
+
+Exit code is non-zero while a BLOCKER/HIGH item fails, so the same command can gate CI. It also prints
+the owner-side items that cannot be automated (Play Console, DLT sender ID, device testing) as
+`MANUAL`, never as a pass. Itemised results: `docs/LAUNCH-CHECKLIST-2026-11-07.md`.
+
+## Audit (6 November 2026)
+
+`docs/AUDIT-2026-11-06.md` is a full, evidence-based audit of this repository: structure, stack, auth, student/faculty/attendance, parent SMS, announcements, dashboards, database/RLS, security, UI/UX, device testing, QA, legal, Play readiness, documentation and code health — each item with a file path and a PASS/PARTIAL/FAIL/NOT VERIFIED status, plus a prioritised fix plan. It records every check that was executed (typechecks, tests, builds, migrations, live API probes) and everything that could not be verified from a sandbox.
 
 ## Security & operations (see docs/FIXES-2026-11-06.md)
 
