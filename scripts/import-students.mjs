@@ -14,7 +14,7 @@
  * audit logging and password hashing as the portal. Credentials are read from the environment:
  *   API_BASE_URL (default http://localhost:3001/api), IMPORT_ADMIN_ID, IMPORT_ADMIN_PASSWORD
  */
-import { openSync, readFileSync, writeFileSync } from 'node:fs';
+import { closeSync, openSync, readFileSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 
 const API = (process.env.API_BASE_URL || 'http://localhost:3001/api').replace(/\/$/, '');
@@ -22,7 +22,7 @@ const identifier = process.env.IMPORT_ADMIN_ID;
 const password = process.env.IMPORT_ADMIN_PASSWORD;
 
 const [file, ...flags] = process.argv.slice(2);
-if (!file) { console.error('Usage: node scripts/import-students.mjs <students.csv> [--apply]'); process.exit(2); }
+if (!file) { console.error('Usage: node scripts/import-students.mjs <students.csv> [--apply --credentials-file=<new-private-file>]'); process.exit(2); }
 const apply = flags.includes('--apply');
 const credentialsFlag = flags.find((flag) => flag.startsWith('--credentials-file='));
 const credentialsPath = credentialsFlag?.slice('--credentials-file='.length);
@@ -122,6 +122,10 @@ for (const record of records) {
   }
 }
 
+if (credentialsFd !== undefined) {
+  closeSync(credentialsFd);
+  console.log('Initial passwords were written to the requested credentials file. Protect it while distributing credentials, then remove it.');
+}
 console.log(`\n${apply ? 'Created' : 'Would create'}: ${created} of ${records.length}`);
 if (failures.length) { console.error(`Failures (${failures.length}):\n${failures.join('\n')}`); process.exit(1); }
 if (!apply) console.log('Re-run with --apply to write these records.');
