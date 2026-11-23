@@ -89,7 +89,7 @@ let credentialsFd;
 if (apply) {
   try {
     credentialsFd = openSync(credentialsPath, 'wx', 0o600);
-    writeFileSync(credentialsFd, 'loginId,password\\n');
+    writeFileSync(credentialsFd, 'loginId,password\n');
   } catch (error) {
     console.error(`Could not create credentials file: ${error.message}`);
     process.exit(2);
@@ -114,7 +114,7 @@ for (const record of records) {
   if (!apply) { console.log(`[dry-run] would create ${record.rollNumber} (${record.fullName})`); created += 1; continue; }
   try {
     await call('/admin/students', { method: 'POST', body: JSON.stringify(payload) }, token);
-    writeFileSync(credentialsFd, `${csvCell(record.rollNumber)},${csvCell(initialPassword)}\\n`);
+    writeFileSync(credentialsFd, `${csvCell(record.rollNumber)},${csvCell(initialPassword)}\n`);
     console.log(`created ${record.rollNumber}`);
     created += 1;
   } catch (error) {
