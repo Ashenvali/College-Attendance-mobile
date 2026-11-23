@@ -1,14 +1,15 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-// The preview/dev server proxies /api to the local Express service (and/health), so the browser
-// only ever talks to its own origin. allowedHosts is "*" because preview URLs are assigned
-// dynamically; the server is never exposed to the public internet without a proxy in front.
+// Preview hosts must be explicitly listed in VITE_ALLOWED_HOSTS when they differ from
+// Vite's safe localhost/IP defaults. Do not disable host validation on this API-proxying server.
+const allowedHosts = (process.env.VITE_ALLOWED_HOSTS || '').split(',').map((host) => host.trim()).filter(Boolean);
+
 export default defineConfig({
   plugins: [react()],
   server: {
     host: '0.0.0.0',
-    allowedHosts: true,
+    ...(allowedHosts.length ? { allowedHosts } : {}),
     port: 3000,
     strictPort: true,
     proxy: {
