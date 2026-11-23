@@ -1,8 +1,8 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-// Preview hosts must be explicitly listed in VITE_ALLOWED_HOSTS when they differ from
-// Vite's safe localhost/IP defaults. Do not disable host validation on this API-proxying server.
+// Preview hosts must be explicitly listed as a comma-separated VITE_ALLOWED_HOSTS environment
+// variable when they differ from Vite's safe localhost/IP defaults. Do not disable host validation.
 const allowedHosts = (process.env.VITE_ALLOWED_HOSTS || '').split(',').map((host) => host.trim()).filter(Boolean);
 
 export default defineConfig({
